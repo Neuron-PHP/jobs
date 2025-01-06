@@ -1,0 +1,11 @@
+schedule:
+  testJobWithArgs:
+    class: Jobs\TestJob
+    cron: "* * * * *"
+    args:
+      doTheThing: true
+      doTheOtherThing: false
+
+  testJobWithoutArgs:
+    class: Jobs\TestJob
+    cron: "* * * * *"
