@@ -44,11 +44,12 @@ class Scheduler extends CommandLineBase
 	 * @param IJob $Job
 	 * @param ?array $Arguments
 	 */
-	public function addJob( string $Cron, IJob $Job, array $Arguments = [] ): void
+	public function addJob( string $Name, string $Cron, IJob $Job, array $Arguments = [] ): void
 	{
 		Log::debug( "Adding job: {$Job->getName()} $Cron" );
 
 		$this->_Jobs[] = [
+			'name' => $Name,
 			'cron' => new CronExpression( $Cron ),
 			'job'  => $Job,
 			'args' => $Arguments
@@ -87,7 +88,7 @@ class Scheduler extends CommandLineBase
 			return;
 		}
 
-		foreach( $Data[ 'schedule' ] as $Job )
+		foreach( $Data[ 'schedule' ] as $Name => $Job )
 		{
 			$Class = $Job[ 'class' ];
 			if( !class_exists( $Class ) )
@@ -97,6 +98,7 @@ class Scheduler extends CommandLineBase
 			}
 
 			$this->addJob(
+				$Name,
 				$Job[ 'cron' ],
 				new $Class(),
 				$Job[ 'args' ] ?? []
@@ -146,11 +148,11 @@ class Scheduler extends CommandLineBase
 
 		foreach( $this->_Jobs as $Job )
 		{
-			Log::debug( "Checking job: {$Job['job']->getName()}" );
+			Log::debug( "Checking job: {$Job['name']}" );
 
 			if( $Job[ 'cron' ]->isDue() )
 			{
-				Log::debug( "Running job: {$Job['job']->getName()}" );
+				Log::debug( "Running job: {$Job['name']}" );
 
 				$Job[ 'job' ]->run( $Job[ 'args' ] );
 				$Count++;

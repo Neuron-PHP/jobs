@@ -9,3 +9,7 @@ schedule:
   testJobWithoutArgs:
     class: Jobs\TestJob
     cron: "* * * * *"
+
+  testJobEvery5Minutes:
+    class: Jobs\TestJob
+    cron: "*/5 * * * *"

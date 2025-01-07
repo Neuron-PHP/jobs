@@ -1,6 +1,6 @@
 #!/usr/bin/env php
 <?php declare(strict_types=1);
-require __DIR__ . '/vendor/autoload.php';
+require __DIR__ . '/../../../vendor/autoload.php';
 
-$App = Boot( __DIR__.'/examples/config' );
+$App = Boot( __DIR__.'/../../../config' );
 Scheduler( $App, $argv );
