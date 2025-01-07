@@ -58,6 +58,7 @@ class SchedulerTest extends TestCase
 	public function testAddJobNoArgs()
 	{
 		$this->App->addJob(
+			'TestJob',
 			'* * * * *',
 			new TestJob()
 		);
@@ -71,6 +72,7 @@ class SchedulerTest extends TestCase
 	public function testAddJobWithArgs()
 	{
 		$this->App->addJob(
+			'TestJob',
 			'* * * * *',
 			new TestJob(),
 			[
@@ -95,7 +97,11 @@ class SchedulerTest extends TestCase
 
 	public function testPoll()
 	{
-		$this->App->addJob( '* * * * *', new TestJob() );
+		$this->App->addJob(
+			'TestJob',
+			'* * * * *',
+			new TestJob()
+		);
 
 		$this->App->poll();
 		$this->assertTrue(
