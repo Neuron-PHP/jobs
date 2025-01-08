@@ -8,6 +8,13 @@ use Neuron\Log\Log;
 use Symfony\Component\Yaml\Exception\ParseException;
 use Symfony\Component\Yaml\Yaml;
 
+/**
+ * CLI application for scheduling jobs.
+ * Jobs are defined in the config/schedule.yaml file.
+ * Usage:
+ * vendor/bin/schedule
+ */
+
 class Scheduler extends CommandLineBase
 {
 	private bool $_Poll = false;
@@ -40,9 +47,10 @@ class Scheduler extends CommandLineBase
 	}
 
 	/**
+	 * @param string $Name
 	 * @param string $Cron
 	 * @param IJob $Job
-	 * @param ?array $Arguments
+	 * @param array $Arguments
 	 */
 	public function addJob( string $Name, string $Cron, IJob $Job, array $Arguments = [] ): void
 	{
@@ -65,17 +73,35 @@ class Scheduler extends CommandLineBase
 	}
 
 	/**
-	 * Schedule the jobs from the schedule.yaml file.
+	 * @param $Schedule
 	 * @return void
 	 */
-	private function initSchedule(): void
+	protected function scheduleJobs( $Schedule ): void
+	{
+		foreach( $Schedule as $Name => $Job )
+		{
+			$Class = $Job[ 'class' ];
+			if( !class_exists( $Class ) )
+			{
+				Log::error( "Class not found: $Class" );
+				continue;
+			}
+
+			$this->addJob( $Name, $Job[ 'cron' ], new $Class(), $Job[ 'args' ] ?? [] );
+		}
+	}
+
+	/**
+	 * @return array
+	 */
+	protected function loadSchedule() : array
 	{
 		$Path = $this->getBasePath().'/config';
 
 		if( !file_exists( $Path . '/schedule.yaml' ) )
 		{
 			Log::debug( "schedule.yaml not found." );
-			return;
+			return [];
 		}
 
 		try
@@ -85,25 +111,26 @@ class Scheduler extends CommandLineBase
 		catch( ParseException $exception )
 		{
 			Log::error( "Failed to load schedule: ".$exception->getMessage() );
+			return [];
+		}
+
+		return $Data;
+	}
+
+	/**
+	 * Schedule the jobs from the schedule.yaml file.
+	 * @return void
+	 */
+	private function initSchedule(): void
+	{
+		$Data = $this->loadSchedule();
+
+		if( empty( $Data ) )
+		{
 			return;
 		}
 
-		foreach( $Data[ 'schedule' ] as $Name => $Job )
-		{
-			$Class = $Job[ 'class' ];
-			if( !class_exists( $Class ) )
-			{
-				Log::error( "Class not found: $Class" );
-				continue;
-			}
-
-			$this->addJob(
-				$Name,
-				$Job[ 'cron' ],
-				new $Class(),
-				$Job[ 'args' ] ?? []
-			);
-		}
+		$this->scheduleJobs( $Data[ 'schedule' ] );
 	}
 
 	/**
@@ -170,6 +197,12 @@ class Scheduler extends CommandLineBase
 		return parent::onStart();
 	}
 
+	protected function onFinish()
+	{
+		Log::debug( "Shutting down." );
+		parent::onFinish();
+	}
+
 	/**
 	 * @param array $Argv
 	 */
@@ -192,4 +225,5 @@ class Scheduler extends CommandLineBase
 
 		$this->infinitePoll();
 	}
+
 }

@@ -3,6 +3,7 @@
 namespace Jobs;
 
 use Neuron\Data\Setting\Source\Ini;
+use Neuron\Data\Setting\Source\Yaml;
 use Neuron\Jobs\IJob;
 use Neuron\Jobs\Scheduler;
 use PHPUnit\Framework\TestCase;
@@ -36,7 +37,7 @@ class SchedulerTest extends TestCase
 	{
 		parent::setUp();
 
-		$Ini = new Ini( './examples/config/config.ini' );
+		$Ini = new Yaml( './examples/config/config.yaml' );
 		$this->App = new Scheduler( "1.0.0", $Ini );
 	}
 

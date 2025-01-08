@@ -18,11 +18,11 @@ function Boot( string $ConfigPath ) : Scheduler
 
 	try
 	{
-		$Settings = new Ini( "$ConfigPath/config.ini" );
+		$Settings = new Ini( "$ConfigPath/config.yaml" );
 	}
 	catch( Exception $e )
 	{
-		echo "Failed to load $ConfigPath/config.ini\r\n";
+		echo "Failed to load $ConfigPath/config.yaml\r\n";
 		exit( 1 );
 	}
 
