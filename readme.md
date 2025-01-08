@@ -1,5 +1,21 @@
 # Neuron Job Scheduler
 
+## Installation
+```bash
+composer require neuron/jobs
+```
+
+Configure the application to use psr-4 autoloading in composer.json as the application
+relies on the autoloader to create the job objects.
+
+Composer snippet:
+```json
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+````
+
 ## Configuration
 
 ### Application
@@ -39,10 +55,6 @@ schedule:
 * cron: The cron expression for the job schedule.
 * args: An array of arguments to pass to the job.
 
-## Installation
-```bash
-composer require neuron/jobs
-```
 
 ## Job Classes
 Job classes must implement the `Neuron\Jobs\IJob` interface.
