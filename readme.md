@@ -20,12 +20,14 @@ Composer snippet:
 
 ### Example Directory Structure
 ```
+├── composer.json
 ├── config
 │   ├── config.yaml
 │   └── schedule.yaml 
-└── src  
-    └── Jobs
-        └── MyJob.php 
+├── src  
+│   └── Jobs
+│       └── MyJob.php
+└── vendor 
 ```
 
 ### Application
@@ -101,12 +103,12 @@ This will run the scheduler in an infinite polling loop, polling every 60 second
 The polling interval seconds can be changed with the `--interval` option.
 
 ```bash
-./vendor/bin/scheduler --interval 5
+./vendor/bin/schedule --interval 5
 ```
 
 ### Single Poll
 The scheduler can also be run to perform a single poll of the schedule by using the `--poll` option.
 For best results, the schedule should be run with the `--poll` option in a cron job and ran once per minute.
 ```bash
-./vendor/bin/scheduler --poll
+./vendor/bin/schedule --poll
 ```
