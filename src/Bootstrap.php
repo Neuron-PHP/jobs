@@ -2,6 +2,7 @@
 
 use Neuron\Data\Object\Version;
 use Neuron\Data\Setting\Source\Ini;
+use Neuron\Data\Setting\Source\Yaml;
 use Neuron\Jobs\Scheduler;
 use Neuron\Patterns\Registry;
 
@@ -18,7 +19,7 @@ function Boot( string $ConfigPath ) : Scheduler
 
 	try
 	{
-		$Settings = new Ini( "$ConfigPath/config.yaml" );
+		$Settings = new Yaml( "$ConfigPath/config.yaml" );
 	}
 	catch( Exception $e )
 	{
