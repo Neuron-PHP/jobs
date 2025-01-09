@@ -1,4 +1,5 @@
-## 0.1.1
+## 0.1.1 2025-01-09
+* Updates for core refactoring.
 
 ## 0.1.0 2025-01-07
 * Initial release
