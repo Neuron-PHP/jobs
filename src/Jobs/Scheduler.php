@@ -191,8 +191,6 @@ class Scheduler extends CommandLineBase
 
 	protected function onStart(): bool
 	{
-		parent::onStart();
-
 		$this->addHandler( '--poll', 'Performs a single poll and executes all ready jobs.', 'pollCommand' );
 		$this->addHandler( '--interval', 'Set the interval between polls in seconds.', 'intervalCommand', true );
 
@@ -205,7 +203,7 @@ class Scheduler extends CommandLineBase
 			return false;
 		}
 
-		return true;
+		return parent::onStart();
 	}
 
 	protected function onFinish()
@@ -219,7 +217,6 @@ class Scheduler extends CommandLineBase
 	 */
 	protected function onRun( array $Argv = [] ): void
 	{
-
 		if( $this->_Poll )
 		{
 			$this->poll();
