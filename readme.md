@@ -2,7 +2,7 @@
 
 ## Installation
 ```bash
-composer require neuron/jobs
+composer require neuron-php/jobs
 ```
 
 Configure the application to use psr-4 autoloading in composer.json as the application
@@ -17,6 +17,18 @@ Composer snippet:
 ````
 
 ## Configuration
+
+### Example Directory Structure
+```
+├── composer.json
+├── config
+│   ├── config.yaml
+│   └── schedule.yaml 
+├── src  
+│   └── Jobs
+│       └── MyJob.php
+└── vendor 
+```
 
 ### Application
 The application configuration is loaded from config/config.yaml
@@ -40,14 +52,14 @@ Example schedule.yaml:
 ```yaml
 schedule:
   testJobWithArgs:
-    class: App\Jobs\TestJob
+    class: App\Jobs\ImportData
     cron: "5 * * * *"
     args:
       doSomething: true
       dontDoSomething: false
 
   testJobWithOutArgs:
-    class: App\Jobs\TestJob
+    class: App\Jobs\SendReminderEmail
     cron: "15 * * * *"
 ```
 
@@ -56,7 +68,7 @@ schedule:
 * args: An array of arguments to pass to the job.
 
 
-## Job Classes
+### Job Classes
 Job classes must implement the `Neuron\Jobs\IJob` interface.
 
 Example Job class:
@@ -66,7 +78,7 @@ namespace App\Jobs;
 use Neuron\Jobs\IJob;
 use Neuron\Log\Log;
 
-class TestJob implements IJob
+class ExampleJob implements IJob
 {
     public function getName() : string
     {
@@ -75,7 +87,7 @@ class TestJob implements IJob
 
     public function run( array $Argv = [] ) : mixed
     {
-        Log::debug( "TestJob::run( {$Argv['interval']} )" );
+        Log::debug( "TestJob::run( {$Argv['parameterName']} )" );
         return true;
     }
 }
@@ -91,12 +103,12 @@ This will run the scheduler in an infinite polling loop, polling every 60 second
 The polling interval seconds can be changed with the `--interval` option.
 
 ```bash
-./vendor/bin/scheduler --interval 5
+./vendor/bin/schedule --interval 5
 ```
 
 ### Single Poll
 The scheduler can also be run to perform a single poll of the schedule by using the `--poll` option.
 For best results, the schedule should be run with the `--poll` option in a cron job and ran once per minute.
 ```bash
-./vendor/bin/scheduler --poll
+./vendor/bin/schedule --poll
 ```

@@ -194,6 +194,15 @@ class Scheduler extends CommandLineBase
 		$this->addHandler( '--poll', 'Performs a single poll and executes all ready jobs.', 'pollCommand' );
 		$this->addHandler( '--interval', 'Set the interval between polls in seconds.', 'intervalCommand', true );
 
+		$this->initSchedule();
+
+		if( count( $this->_Jobs ) == 0 )
+		{
+			Log::error( "No jobs defined." );
+			fprintf( STDERR, "No jobs defined.\n" );
+			return false;
+		}
+
 		return parent::onStart();
 	}
 
@@ -208,15 +217,6 @@ class Scheduler extends CommandLineBase
 	 */
 	protected function onRun( array $Argv = [] ): void
 	{
-		$this->initSchedule();
-
-		if( count( $this->_Jobs ) == 0 )
-		{
-			Log::error( "No jobs defined." );
-			fprintf( STDERR, "No jobs defined.\n" );
-			return;
-		}
-
 		if( $this->_Poll )
 		{
 			$this->poll();
@@ -225,5 +225,4 @@ class Scheduler extends CommandLineBase
 
 		$this->infinitePoll();
 	}
-
 }
