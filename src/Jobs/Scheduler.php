@@ -135,17 +135,26 @@ class Scheduler extends CommandLineBase
 
 	/**
 	 * Command line parameter to poll events one time.
-	 * @return void
+	 * @return bool
 	 */
-	protected function pollCommand(): void
+	protected function pollCommand(): bool
 	{
 		$this->_Poll = true;
+
+		return true;
 	}
 
-	protected function intervalCommand( int $Interval ): void
+	/**
+	 * Command line parameter to set the interval between polls.
+	 * @param int $Interval interval in seconds.
+	 * @return bool
+	 */
+	protected function intervalCommand( int $Interval ): bool
 	{
 		$this->setInterval( $Interval );
 		Log::debug( "Setting interval to: {$this->getInterval()}" );
+
+		return true;
 	}
 
 	/**
@@ -191,6 +200,7 @@ class Scheduler extends CommandLineBase
 
 	protected function onStart(): bool
 	{
+		Log::debug( "Starting scheduler.." );
 		$this->addHandler( '--poll', 'Performs a single poll and executes all ready jobs.', 'pollCommand' );
 		$this->addHandler( '--interval', 'Set the interval between polls in seconds.', 'intervalCommand', true );
 
@@ -206,7 +216,7 @@ class Scheduler extends CommandLineBase
 		return parent::onStart();
 	}
 
-	protected function onFinish()
+	protected function onFinish(): void
 	{
 		Log::debug( "Shutting down." );
 		parent::onFinish();
