@@ -1,3 +1,5 @@
+## 0.1.5
+
 ## 0.1.4 2025-01-15
 * Completed tests.
 * Missing config values now automatically fallback to env values.
