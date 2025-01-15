@@ -1,4 +1,4 @@
-## 0.1.4
+## 0.1.4 2025-01-15
 * Completed tests.
 * Missing config values now automatically fallback to env values.
 * Config file name can now be modified.
