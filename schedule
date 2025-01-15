@@ -8,5 +8,7 @@
  */
 require __DIR__ . '/../../../vendor/autoload.php';
 
-$App = Boot( __DIR__.'/../../../config' );
-Scheduler( $App, $argv );
+Scheduler(
+        Boot( __DIR__.'/../../../config' ),
+        $argv
+);

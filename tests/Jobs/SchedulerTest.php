@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 class TestJob implements IJob
 {
 	public bool $Ran = false;
+	public bool $Crash = false;
 	public array $Args = [];
 
 	public function getName() : string
@@ -39,6 +40,27 @@ class SchedulerTest extends TestCase
 
 		$Ini = new Yaml( './examples/config/config.yaml' );
 		$this->App = new Scheduler( "1.0.0", $Ini );
+	}
+
+	public function testGetDescription()
+	{
+		$this->assertNotEmpty(
+			$this->App->getDescription()
+		);
+	}
+
+	public function testMissingSchedule()
+	{
+		$this->App->setConfigFile( 'missing.yaml' );
+		$this->assertEmpty( $this->App->loadSchedule() );
+	}
+
+	public function testBadSchedule()
+	{
+		$this->App->setConfigFile( 'bad-schedule.yaml' );
+		$this->assertEmpty( $this->App->loadSchedule() );
+
+		$this->App->run( [ '--poll' ] );
 	}
 
 	public function testInterval()
@@ -115,6 +137,71 @@ class SchedulerTest extends TestCase
 		$this->App->run( [ '--poll' ] );
 		$this->assertTrue(
 			$this->App->getJobs()[0]['job']->Ran
+		);
+	}
+
+	public function testBootstrapBoot()
+	{
+		$cwd = getcwd();
+		$App = Boot( getcwd().'/examples/config' );
+
+		$this->assertInstanceOf(
+			Scheduler::class,
+			$App
+		);
+	}
+
+	public function testBootstrapBootConfigFail()
+	{
+		$App = Boot( getcwd().'/examples/config1' );
+
+		$this->assertNull(
+			$App
+		);
+	}
+
+	public function testBootstrapScheduler()
+	{
+		$App = Boot( getcwd().'/examples/config' );
+		Scheduler( $App, [ '--poll' ] );
+
+		$this->assertTrue(
+			$App->getJobs()[0]['job']->Ran
+		);
+	}
+
+	public function testInfinitePolling()
+	{
+		$App = Boot( getcwd().'/examples/config' );
+		$App->setDebug( true );
+		Scheduler(
+			$App,
+			[
+				'--interval',
+				'0'
+			]
+		);
+
+		$this->assertTrue(
+			$App->getJobs()[0]['job']->Ran
+		);
+	}
+
+	public function testBootstrapSchedulerIntervalCommand()
+	{
+		$App = Boot( getcwd().'/examples/config' );
+
+		Scheduler(
+			$App,
+			[
+				'--interval',
+				'30',
+				'--poll'
+			]
+		);
+
+		$this->assertTrue(
+			$App->getJobs()[0]['job']->Ran
 		);
 	}
 }

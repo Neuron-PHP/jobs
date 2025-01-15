@@ -20,8 +20,40 @@ class Scheduler extends CommandLineBase
 	private bool $_Poll = false;
 	private int $_Interval = 60;
 	private array $_Jobs = [];
+	private string $_ConfigFile =  'schedule.yaml';
+	private bool $_Debug = false;
 
-	protected function getDescription(): string
+
+	/**
+	 * @param bool $Debug
+	 * @return Scheduler
+	 */
+	public function setDebug( bool $Debug ): Scheduler
+	{
+		$this->_Debug = $Debug;
+		return $this;
+	}
+
+
+	/**
+	 * @return string
+	 */
+	public function getConfigFile(): string
+	{
+		return $this->_ConfigFile;
+	}
+
+	/**
+	 * @param string $ConfigFile
+	 * @return Scheduler
+	 */
+	public function setConfigFile( string $ConfigFile ): Scheduler
+	{
+		$this->_ConfigFile = $ConfigFile;
+		return $this;
+	}
+
+	public function getDescription(): string
 	{
 		return "Neuron scheduler for running jobs at specific times.\n".
 			"Jobs are defined in the config/schedule.yaml file.\n".
@@ -76,7 +108,7 @@ class Scheduler extends CommandLineBase
 	 * @param $Schedule
 	 * @return void
 	 */
-	protected function scheduleJobs( $Schedule ): void
+	public function scheduleJobs( $Schedule ): void
 	{
 		foreach( $Schedule as $Name => $Job )
 		{
@@ -94,11 +126,11 @@ class Scheduler extends CommandLineBase
 	/**
 	 * @return array
 	 */
-	protected function loadSchedule() : array
+	public function loadSchedule() : array
 	{
 		$Path = $this->getBasePath().'/config';
 
-		if( !file_exists( $Path . '/schedule.yaml' ) )
+		if( !file_exists( $Path . '/'. $this->getConfigFile() ) )
 		{
 			Log::debug( "schedule.yaml not found." );
 			return [];
@@ -106,7 +138,7 @@ class Scheduler extends CommandLineBase
 
 		try
 		{
-			$Data = Yaml::parseFile( $Path . '/schedule.yaml' );
+			$Data = Yaml::parseFile( $Path . '/'. $this->getConfigFile() );
 		}
 		catch( ParseException $exception )
 		{
@@ -168,7 +200,13 @@ class Scheduler extends CommandLineBase
 		while( true )
 		{
 			$this->poll();
+
 			sleep( $this->_Interval );
+
+			if( $this->_Debug )
+			{
+				break;
+			}
 		}
 	}
 

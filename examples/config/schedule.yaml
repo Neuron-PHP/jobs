@@ -13,3 +13,13 @@ schedule:
   testJobEvery5Minutes:
     class: Jobs\TestJob
     cron: "*/5 * * * *"
+
+  testJobCrash:
+    class: Jobs\TestJob
+    cron: "* * * * *"
+    args:
+      crash: true
+
+  testJobBadClass:
+    class: Jobs\NonExistentJob
+    cron: "* * * * *"
