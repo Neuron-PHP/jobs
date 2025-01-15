@@ -1,7 +1,8 @@
 <?php
 
 use Neuron\Data\Object\Version;
-use Neuron\Data\Setting\Source\Ini;
+use Neuron\Data\Setting\SettingManager;
+use Neuron\Data\Setting\Source\Env;
 use Neuron\Data\Setting\Source\Yaml;
 use Neuron\Jobs\Scheduler;
 use Neuron\Patterns\Registry;
@@ -10,25 +11,28 @@ use Neuron\Patterns\Registry;
  * Initialize the application.
  *
  * @param string $ConfigPath
- * @return Scheduler
+ * @return ?Scheduler
  * @throws Exception
  */
-function Boot( string $ConfigPath ) : Scheduler
+function Boot( string $ConfigPath ) : ?Scheduler
 {
 	/** @var Neuron\Data\Setting\Source\ISettingSource $Settings */
 
 	try
 	{
 		$Settings = new Yaml( "$ConfigPath/config.yaml" );
+		$Manager  = new SettingManager( $Settings );
+		$Fallback = new Env( Neuron\Data\Env::getInstance( "$ConfigPath/.env" ) );
+		$Manager->setFallback( $Fallback );
 	}
 	catch( Exception $e )
 	{
 		echo "Failed to load $ConfigPath/config.yaml\r\n";
-		exit( 1 );
+		return null;
 	}
 
 	Registry::getInstance()
-			  ->set( 'Settings', $Settings );
+			  ->set( 'Settings', $Manager );
 
 	$Version = new Version();
 	$Version->loadFromFile( __DIR__."/../version.json" );
@@ -37,12 +41,5 @@ function Boot( string $ConfigPath ) : Scheduler
 }
 function Scheduler( Scheduler $App, $argv ) : void
 {
-	try
-	{
-		$App->run( $argv );
-	}
-	catch( Exception $e )
-	{
-		echo 'Ouch.';
-	}
+	$App->run( $argv );
 }
