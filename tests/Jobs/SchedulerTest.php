@@ -155,7 +155,8 @@ class SchedulerTest extends TestCase
 	{
 		$App = Boot( getcwd().'/examples/config1' );
 
-		$this->assertNull(
+		$this->assertInstanceOf(
+			Scheduler::class,
 			$App
 		);
 	}
