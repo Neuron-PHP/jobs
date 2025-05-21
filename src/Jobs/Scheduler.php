@@ -3,7 +3,7 @@
 namespace Neuron\Jobs;
 
 use Cron\CronExpression;
-use Neuron\Core\Application\CommandLineBase;
+use Neuron\Application\CommandLineBase;
 use Neuron\Log\Log;
 use Symfony\Component\Yaml\Exception\ParseException;
 use Symfony\Component\Yaml\Yaml;
@@ -28,6 +28,7 @@ class Scheduler extends CommandLineBase
 	 * @param bool $Debug
 	 * @return Scheduler
 	 */
+
 	public function setDebug( bool $Debug ): Scheduler
 	{
 		$this->_Debug = $Debug;
@@ -38,6 +39,7 @@ class Scheduler extends CommandLineBase
 	/**
 	 * @return string
 	 */
+
 	public function getConfigFile(): string
 	{
 		return $this->_ConfigFile;
@@ -47,11 +49,16 @@ class Scheduler extends CommandLineBase
 	 * @param string $ConfigFile
 	 * @return Scheduler
 	 */
+
 	public function setConfigFile( string $ConfigFile ): Scheduler
 	{
 		$this->_ConfigFile = $ConfigFile;
 		return $this;
 	}
+
+	/**
+	 * @return string
+	 */
 
 	public function getDescription(): string
 	{
@@ -64,6 +71,7 @@ class Scheduler extends CommandLineBase
 	 * @param int $Interval
 	 * @return Scheduler
 	 */
+
 	public function setInterval( int $Interval ): Scheduler
 	{
 		$this->_Interval = $Interval;
@@ -73,6 +81,7 @@ class Scheduler extends CommandLineBase
 	/**
 	 * @return int
 	 */
+
 	public function getInterval(): int
 	{
 		return $this->_Interval;
@@ -84,6 +93,7 @@ class Scheduler extends CommandLineBase
 	 * @param IJob $Job
 	 * @param array $Arguments
 	 */
+
 	public function addJob( string $Name, string $Cron, IJob $Job, array $Arguments = [] ): void
 	{
 		Log::debug( "Adding job: {$Job->getName()} $Cron" );
@@ -99,6 +109,7 @@ class Scheduler extends CommandLineBase
 	/**
 	 * @return array
 	 */
+
 	public function getJobs(): array
 	{
 		return $this->_Jobs;
@@ -108,6 +119,7 @@ class Scheduler extends CommandLineBase
 	 * @param $Schedule
 	 * @return void
 	 */
+
 	public function scheduleJobs( $Schedule ): void
 	{
 		foreach( $Schedule as $Name => $Job )
@@ -126,6 +138,7 @@ class Scheduler extends CommandLineBase
 	/**
 	 * @return array
 	 */
+
 	public function loadSchedule() : array
 	{
 		$Path = $this->getBasePath().'/config';
@@ -153,6 +166,7 @@ class Scheduler extends CommandLineBase
 	 * Schedule the jobs from the schedule.yaml file.
 	 * @return void
 	 */
+
 	private function initSchedule(): void
 	{
 		$Data = $this->loadSchedule();
@@ -169,6 +183,7 @@ class Scheduler extends CommandLineBase
 	 * Command line parameter to poll events one time.
 	 * @return bool
 	 */
+
 	protected function pollCommand(): bool
 	{
 		$this->_Poll = true;
@@ -181,6 +196,7 @@ class Scheduler extends CommandLineBase
 	 * @param int $Interval interval in seconds.
 	 * @return bool
 	 */
+
 	protected function intervalCommand( int $Interval ): bool
 	{
 		$this->setInterval( $Interval );
@@ -193,6 +209,7 @@ class Scheduler extends CommandLineBase
 	 * Infinite poll loop.
 	 * @return void
 	 */
+
 	public function infinitePoll(): void
 	{
 		Log::debug( "Starting infinite poll.." );
@@ -214,6 +231,7 @@ class Scheduler extends CommandLineBase
 	 * Single job poll.
 	 * @return int Number of jobs run.
 	 */
+
 	public function poll(): int
 	{
 		Log::debug( "Polling.." );
@@ -236,6 +254,10 @@ class Scheduler extends CommandLineBase
 		return $Count;
 	}
 
+	/**
+	 * @return bool
+	 */
+
 	protected function onStart(): bool
 	{
 		Log::debug( "Starting scheduler.." );
@@ -254,6 +276,10 @@ class Scheduler extends CommandLineBase
 		return parent::onStart();
 	}
 
+	/**
+	 * @return void
+	 */
+
 	protected function onFinish(): void
 	{
 		Log::debug( "Shutting down." );
@@ -263,6 +289,7 @@ class Scheduler extends CommandLineBase
 	/**
 	 * @param array $Argv
 	 */
+
 	protected function onRun( array $Argv = [] ): void
 	{
 		if( $this->_Poll )
