@@ -22,6 +22,7 @@ class Scheduler extends CommandLineBase
 	private array $_Jobs = [];
 	private string $_ConfigFile =  'schedule.yaml';
 	private bool $_Debug = false;
+	private ?string $_BasePath = null;
 
 
 	/**
@@ -88,6 +89,18 @@ class Scheduler extends CommandLineBase
 	}
 
 	/**
+	 * Set the base path for configuration files
+	 * 
+	 * @param string $basePath
+	 * @return Scheduler
+	 */
+	public function setBasePath( string $basePath ): Scheduler
+	{
+		$this->_BasePath = $basePath . '/config';
+		return $this;
+	}
+
+	/**
 	 * @param string $Name
 	 * @param string $Cron
 	 * @param IJob $Job
@@ -141,7 +154,7 @@ class Scheduler extends CommandLineBase
 
 	public function loadSchedule() : array
 	{
-		$Path = $this->getBasePath().'/config';
+		$Path = $this->_BasePath ?? $this->getBasePath().'/config';
 
 		if( !file_exists( $Path . '/'. $this->getConfigFile() ) )
 		{

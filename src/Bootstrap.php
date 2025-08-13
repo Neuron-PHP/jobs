@@ -23,7 +23,7 @@ function Boot( string $ConfigPath ) : ?Scheduler
 	}
 
 	$Version = new Version();
-	$Version->loadFromFile( __DIR__."/../version.json" );
+	$Version->loadFromFile( __DIR__."/../.version.json" );
 
 	return new Scheduler( $Version->getAsString(), $Settings );
 }
