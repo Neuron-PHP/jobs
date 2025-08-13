@@ -1,10 +1,8 @@
 <?php
 
 use Neuron\Data\Object\Version;
-use Neuron\Data\Setting\SettingManager;
 use Neuron\Data\Setting\Source\Yaml;
 use Neuron\Jobs\Scheduler;
-use Neuron\Patterns\Registry;
 
 /**
  * Initialize the application.
@@ -25,7 +23,7 @@ function Boot( string $ConfigPath ) : ?Scheduler
 	}
 
 	$Version = new Version();
-	$Version->loadFromFile( __DIR__."/../version.json" );
+	$Version->loadFromFile( __DIR__."/../.version.json" );
 
 	return new Scheduler( $Version->getAsString(), $Settings );
 }

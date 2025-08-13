@@ -13,15 +13,12 @@
     "ext-curl": "*",
     "ext-json": "*",
     "dragonmantank/cron-expression": "^3.4",
-    "neuron-php/core": "^0.6.14"
+    "neuron-php/cli": "0.1.*"
   },
   "require-dev": {
     "phpunit/phpunit": "9.*"
   },
   "autoload": {
-    "files": [
-      "src/Bootstrap.php"
-    ],
     "psr-4": {
       "Neuron\\": "src/"
     }
@@ -31,7 +28,9 @@
       "Tests\\": "tests/"
     }
   },
-  "bin": [
-    "schedule"
-  ]
+  "extra": {
+    "neuron": {
+      "cli-provider": "Neuron\\Jobs\\Cli\\Provider"
+    }
+  }
 }

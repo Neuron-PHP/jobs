@@ -30,3 +30,4 @@ composer.phar
 cache.properties
 composer.lock
 tests/.phpunit.result.cache
+examples/test.log
