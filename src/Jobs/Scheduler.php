@@ -9,10 +9,45 @@ use Symfony\Component\Yaml\Exception\ParseException;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * CLI application for scheduling jobs.
- * Jobs are defined in the config/schedule.yaml file.
- * Usage:
- * vendor/bin/schedule
+ * Advanced job scheduling and execution engine for the Neuron framework.
+ * 
+ * This scheduler provides comprehensive job management with cron-like scheduling,
+ * daemon operation, and robust error handling. It supports both one-time job
+ * execution and continuous polling for scheduled jobs.
+ * 
+ * Key features:
+ * - YAML-based job configuration with cron expressions
+ * - Daemon mode with configurable polling intervals
+ * - Job lifecycle management (creation, execution, cleanup)
+ * - Comprehensive logging and error handling
+ * - Debug mode for development and troubleshooting
+ * - Integration with the Neuron logging system
+ * 
+ * Configuration format (schedule.yaml):
+ * ```yaml
+ * jobs:
+ *   email_cleanup:
+ *     schedule: "0 2 * * *"  # Daily at 2 AM
+ *     class: "App\\Jobs\\EmailCleanup"
+ *   backup_database:
+ *     schedule: "0 1 * * 0"  # Weekly on Sunday at 1 AM
+ *     class: "App\\Jobs\\BackupDatabase"
+ * ```
+ * 
+ * @package Neuron\Jobs
+ * 
+ * @example
+ * ```php
+ * // Basic usage
+ * $scheduler = new Scheduler();
+ * $scheduler->setConfigFile('config/schedule.yaml')
+ *          ->setDebug(true)
+ *          ->loadSchedule()
+ *          ->run();
+ * 
+ * // Daemon mode
+ * $scheduler->infinitePoll(60); // Poll every 60 seconds
+ * ```
  */
 
 class Scheduler extends CommandLineBase

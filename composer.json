@@ -19,6 +19,9 @@
     "phpunit/phpunit": "9.*"
   },
   "autoload": {
+    "files": [
+      "src/Bootstrap.php"
+    ],
     "psr-4": {
       "Neuron\\": "src/"
     }
