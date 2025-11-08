@@ -1,4 +1,4 @@
-[![Build Status](https://app.travis-ci.com/Neuron-PHP/jobs.svg?token=F8zCwpT7x7Res7J2N4vF&branch=master)](https://app.travis-ci.com/Neuron-PHP/jobs)
+[![CI](https://github.com/Neuron-PHP/jobs/actions/workflows/ci.yml/badge.svg)](https://github.com/Neuron-PHP/jobs/actions)
 # Neuron-PHP Job Scheduler
 
 ## Overview

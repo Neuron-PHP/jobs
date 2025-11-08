@@ -1,3 +1,6 @@
+## 0.2.1 2025-11-08
+* Composer update.
+
 ## 0.2.0 2025-08-13
 * Added CLI commands.
 

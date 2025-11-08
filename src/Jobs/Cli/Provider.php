@@ -23,10 +23,5 @@ class Provider
 			'jobs:schedule', 
 			'Neuron\\Jobs\\Cli\\Commands\\ScheduleCommand' 
 		);
-		
-		// Future commands can be added here:
-		// $registry->register( 'jobs:list', 'Neuron\\Cli\\Commands\\Jobs\\ListCommand' );
-		// $registry->register( 'jobs:run', 'Neuron\\Cli\\Commands\\Jobs\\RunCommand' );
-		// $registry->register( 'jobs:status', 'Neuron\\Cli\\Commands\\Jobs\\StatusCommand' );
 	}
 }
