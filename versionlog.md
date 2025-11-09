@@ -14,7 +14,7 @@
 * Missing config values now automatically fallback to env values.
 * Config file name can now be modified.
 
-## 0.1.3
+## 0.1.3 2025-11-08
 ## 0.1.2 2025-01-10
 * Updates for core refactoring.
 
