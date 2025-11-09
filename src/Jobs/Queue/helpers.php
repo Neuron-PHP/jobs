@@ -73,8 +73,9 @@ if( !function_exists( 'getQueueManager' ) )
 
 		if( !$queueManager )
 		{
-			// Try to get settings from registry
-			$settings = $registry->get( 'settings' );
+			// Try to get settings from registry (stored by Application as 'Settings')
+			$settingManager = $registry->get( 'Settings' );
+			$settings = $settingManager ? $settingManager->getSource() : null;
 
 			$queueManager = new QueueManager( $settings );
 			$registry->set( 'queue.manager', $queueManager );
