@@ -1,3 +1,5 @@
+## 0.2.3 2025-11-08
+
 * Added asynchronous job queue system.
 
 ## 0.2.1 2025-11-08
