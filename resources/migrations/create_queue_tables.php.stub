@@ -1,0 +1,45 @@
+<?php
+
+use Phinx\Migration\AbstractMigration;
+
+/**
+ * Create queue tables for job processing
+ *
+ * This migration creates the jobs and failed_jobs tables needed
+ * for the Neuron queue system to function.
+ */
+class CreateQueueTables extends AbstractMigration
+{
+	/**
+	 * Create jobs and failed_jobs tables
+	 */
+	public function change()
+	{
+		// Jobs table
+		$jobs = $this->table( 'jobs', [ 'id' => false, 'primary_key' => [ 'id' ] ] );
+
+		$jobs->addColumn( 'id', 'string', [ 'limit' => 255 ] )
+			->addColumn( 'queue', 'string', [ 'limit' => 255 ] )
+			->addColumn( 'payload', 'text' )
+			->addColumn( 'attempts', 'integer', [ 'default' => 0 ] )
+			->addColumn( 'reserved_at', 'integer', [ 'null' => true ] )
+			->addColumn( 'available_at', 'integer' )
+			->addColumn( 'created_at', 'integer' )
+			->addIndex( [ 'queue' ] )
+			->addIndex( [ 'available_at' ] )
+			->addIndex( [ 'reserved_at' ] )
+			->create();
+
+		// Failed jobs table
+		$failedJobs = $this->table( 'failed_jobs', [ 'id' => false, 'primary_key' => [ 'id' ] ] );
+
+		$failedJobs->addColumn( 'id', 'string', [ 'limit' => 255 ] )
+			->addColumn( 'queue', 'string', [ 'limit' => 255 ] )
+			->addColumn( 'payload', 'text' )
+			->addColumn( 'exception', 'text' )
+			->addColumn( 'failed_at', 'integer' )
+			->addIndex( [ 'queue' ] )
+			->addIndex( [ 'failed_at' ] )
+			->create();
+	}
+}

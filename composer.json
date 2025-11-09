@@ -20,7 +20,8 @@
   },
   "autoload": {
     "files": [
-      "src/Bootstrap.php"
+      "src/Bootstrap.php",
+      "src/Jobs/Queue/helpers.php"
     ],
     "psr-4": {
       "Neuron\\": "src/"
