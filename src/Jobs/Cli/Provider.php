@@ -19,9 +19,40 @@ class Provider
 	public static function register( Registry $registry ): void
 	{
 		// Register the schedule command
-		$registry->register( 
-			'jobs:schedule', 
-			'Neuron\\Jobs\\Cli\\Commands\\ScheduleCommand' 
+		$registry->register(
+			'jobs:schedule',
+			'Neuron\\Jobs\\Cli\\Commands\\ScheduleCommand'
+		);
+
+		// Register queue commands
+		$registry->register(
+			'jobs:work',
+			'Neuron\\Jobs\\Cli\\Commands\\WorkCommand'
+		);
+
+		$registry->register(
+			'jobs:failed',
+			'Neuron\\Jobs\\Cli\\Commands\\FailedCommand'
+		);
+
+		$registry->register(
+			'jobs:retry',
+			'Neuron\\Jobs\\Cli\\Commands\\RetryCommand'
+		);
+
+		$registry->register(
+			'jobs:flush',
+			'Neuron\\Jobs\\Cli\\Commands\\FlushCommand'
+		);
+
+		$registry->register(
+			'jobs:forget',
+			'Neuron\\Jobs\\Cli\\Commands\\ForgetCommand'
+		);
+
+		$registry->register(
+			'jobs:stats',
+			'Neuron\\Jobs\\Cli\\Commands\\StatsCommand'
 		);
 	}
 }

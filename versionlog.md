@@ -1,4 +1,4 @@
-## 0.2.2
+* Added asynchronous job queue system.
 
 ## 0.2.1 2025-11-08
 * Composer update.
