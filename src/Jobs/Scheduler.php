@@ -136,21 +136,25 @@ class Scheduler extends CommandLineBase
 	}
 
 	/**
-	 * @param string $Name
-	 * @param string $Cron
-	 * @param IJob $Job
-	 * @param array $Arguments
+	 * Add a job to the scheduler
+	 *
+	 * @param string $Name Job name
+	 * @param string $Cron Cron expression
+	 * @param IJob $Job Job instance
+	 * @param array $Arguments Job arguments
+	 * @param string|null $Queue Queue name (null = run directly, not queued)
 	 */
 
-	public function addJob( string $Name, string $Cron, IJob $Job, array $Arguments = [] ): void
+	public function addJob( string $Name, string $Cron, IJob $Job, array $Arguments = [], ?string $Queue = null ): void
 	{
-		Log::debug( "Adding job: {$Job->getName()} $Cron" );
+		Log::debug( "Adding job: {$Job->getName()} $Cron" . ( $Queue ? " [queue: $Queue]" : " [direct]" ) );
 
 		$this->_Jobs[] = [
 			'name' => $Name,
 			'cron' => new CronExpression( $Cron ),
 			'job'  => $Job,
-			'args' => $Arguments
+			'args' => $Arguments,
+			'queue' => $Queue
 		];
 	}
 
@@ -164,7 +168,9 @@ class Scheduler extends CommandLineBase
 	}
 
 	/**
-	 * @param $Schedule
+	 * Schedule jobs from configuration
+	 *
+	 * @param array $Schedule Schedule configuration array
 	 * @return void
 	 */
 
@@ -179,7 +185,13 @@ class Scheduler extends CommandLineBase
 				continue;
 			}
 
-			$this->addJob( $Name, $Job[ 'cron' ], new $Class(), $Job[ 'args' ] ?? [] );
+			$this->addJob(
+				$Name,
+				$Job[ 'cron' ],
+				new $Class(),
+				$Job[ 'args' ] ?? [],
+				$Job[ 'queue' ] ?? null
+			);
 		}
 	}
 
@@ -277,7 +289,9 @@ class Scheduler extends CommandLineBase
 
 	/**
 	 * Single job poll.
-	 * @return int Number of jobs run.
+	 * Checks all scheduled jobs and either runs them directly or dispatches to queue.
+	 *
+	 * @return int Number of jobs triggered (run or dispatched).
 	 */
 
 	public function poll(): int
@@ -292,9 +306,25 @@ class Scheduler extends CommandLineBase
 
 			if( $Job[ 'cron' ]->isDue() )
 			{
-				Log::debug( "Running job: {$Job['name']}" );
+				// If queue is specified, dispatch to queue instead of running directly
+				if( isset( $Job['queue'] ) && $Job['queue'] !== null )
+				{
+					Log::debug( "Dispatching job to queue: {$Job['name']} -> {$Job['queue']}" );
 
-				$Job[ 'job' ]->run( $Job[ 'args' ] );
+					dispatch(
+						$Job[ 'job' ],
+						$Job[ 'args' ],
+						$Job[ 'queue' ]
+					);
+				}
+				else
+				{
+					// Run directly in scheduler process (current behavior)
+					Log::debug( "Running job directly: {$Job['name']}" );
+
+					$Job[ 'job' ]->run( $Job[ 'args' ] );
+				}
+
 				$Count++;
 			}
 		}
