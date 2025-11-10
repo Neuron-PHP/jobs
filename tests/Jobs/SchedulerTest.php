@@ -118,6 +118,40 @@ class SchedulerTest extends TestCase
 		);
 	}
 
+	public function testAddJobWithQueue()
+	{
+		$this->App->addJob(
+			'TestJob',
+			'* * * * *',
+			new TestJob(),
+			[
+				'arg1' => true
+			],
+			'test-queue'
+		);
+
+		$this->assertCount(
+			1,
+			$this->App->getJobs()
+		);
+
+		$jobs = $this->App->getJobs();
+		$this->assertEquals( 'test-queue', $jobs[0]['queue'] );
+		$this->assertEquals( ['arg1' => true], $jobs[0]['args'] );
+	}
+
+	public function testAddJobWithoutQueue()
+	{
+		$this->App->addJob(
+			'TestJob',
+			'* * * * *',
+			new TestJob()
+		);
+
+		$jobs = $this->App->getJobs();
+		$this->assertNull( $jobs[0]['queue'] );
+	}
+
 	public function testPoll()
 	{
 		$this->App->addJob(
