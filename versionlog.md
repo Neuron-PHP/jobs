@@ -1,4 +1,4 @@
-## 0.2.4
+## 0.2.4 2025-11-10
 * Scheduled jobs can now be queued for asynchronous processing.
 
 ## 0.2.3 2025-11-08
