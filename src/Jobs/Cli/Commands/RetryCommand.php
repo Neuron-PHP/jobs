@@ -3,29 +3,45 @@
 namespace Neuron\Jobs\Cli\Commands;
 
 use Neuron\Cli\Commands\Command;
-use Neuron\Jobs\Queue\QueueManager;
-use Neuron\Patterns\Registry;
+use Neuron\Jobs\Cli\Traits\HasQueueManager;
 
 /**
  * CLI command for retrying failed jobs.
  */
 class RetryCommand extends Command
 {
+	use HasQueueManager;
+
+	/**
+	 * Get command name.
+	 */
 	public function getName(): string
 	{
 		return 'jobs:retry';
 	}
 
+	/**
+	 * Get command description.
+	 */
 	public function getDescription(): string
 	{
 		return 'Retry one or more failed jobs';
 	}
 
+	/**
+	 * Configure command options.
+	 */
 	public function configure(): void
 	{
 		$this->addOption( 'all', 'a', false, 'Retry all failed jobs' );
 	}
 
+	/**
+	 * Execute the command.
+	 *
+	 * @param array $parameters Command parameters.
+	 * @return int Exit code.
+	 */
 	public function execute( array $parameters = [] ): int
 	{
 		$queueManager = $this->getQueueManager();
@@ -65,20 +81,5 @@ class RetryCommand extends Command
 			$this->output->error( "Failed job not found: {$jobId}" );
 			return 1;
 		}
-	}
-
-	private function getQueueManager(): ?QueueManager
-	{
-		$registry = Registry::getInstance();
-		$queueManager = $registry->get( 'queue.manager' );
-
-		if( !$queueManager )
-		{
-			$settings = $registry->get( 'settings' );
-			$queueManager = new QueueManager( $settings );
-			$registry->set( 'queue.manager', $queueManager );
-		}
-
-		return $queueManager;
 	}
 }

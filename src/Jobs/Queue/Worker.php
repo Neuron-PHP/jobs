@@ -14,20 +14,20 @@ use Neuron\Log\Log;
  */
 class Worker
 {
-	private QueueManager $_QueueManager;
-	private bool $_ShouldQuit = false;
-	private int $_Sleep = 3; // seconds to sleep when queue is empty
-	private int $_MaxJobs = 0; // 0 = unlimited
-	private int $_JobsProcessed = 0;
-	private int $_Timeout = 60; // seconds
-	private bool $_StopWhenEmpty = false;
+	private QueueManager $_queueManager;
+	private bool $_shouldQuit = false;
+	private int $_sleep = 3; // seconds to sleep when queue is empty
+	private int $_maxJobs = 0; // 0 = unlimited
+	private int $_jobsProcessed = 0;
+	private int $_timeout = 60; // seconds
+	private bool $_stopWhenEmpty = false;
 
 	/**
 	 * @param QueueManager $queueManager
 	 */
 	public function __construct( QueueManager $queueManager )
 	{
-		$this->_QueueManager = $queueManager;
+		$this->_queueManager = $queueManager;
 		$this->registerSignalHandlers();
 	}
 
@@ -69,10 +69,10 @@ class Worker
 
 		if( $once )
 		{
-			$this->_StopWhenEmpty = true;
+			$this->_stopWhenEmpty = true;
 		}
 
-		while( !$this->_ShouldQuit )
+		while( !$this->_shouldQuit )
 		{
 			$processed = false;
 
@@ -81,12 +81,12 @@ class Worker
 				if( $this->processNextJob( $queue ) )
 				{
 					$processed = true;
-					$this->_JobsProcessed++;
+					$this->_jobsProcessed++;
 
 					// Check if we've hit max jobs
-					if( $this->_MaxJobs > 0 && $this->_JobsProcessed >= $this->_MaxJobs )
+					if( $this->_maxJobs > 0 && $this->_jobsProcessed >= $this->_maxJobs )
 					{
-						Log::info( "Worker processed {$this->_JobsProcessed} jobs, shutting down" );
+						Log::info( "Worker processed {$this->_jobsProcessed} jobs, shutting down" );
 						$this->stop();
 						break 2;
 					}
@@ -99,19 +99,19 @@ class Worker
 			// No jobs were processed
 			if( !$processed )
 			{
-				if( $this->_StopWhenEmpty )
+				if( $this->_stopWhenEmpty )
 				{
 					Log::info( "Queue is empty, exiting" );
 					break;
 				}
 
 				// Sleep before checking again
-				Log::debug( "Queue is empty, sleeping for {$this->_Sleep} seconds" );
-				sleep( $this->_Sleep );
+				Log::debug( "Queue is empty, sleeping for {$this->_sleep} seconds" );
+				sleep( $this->_sleep );
 			}
 		}
 
-		Log::info( "Worker stopped. Total jobs processed: {$this->_JobsProcessed}" );
+		Log::info( "Worker stopped. Total jobs processed: {$this->_jobsProcessed}" );
 	}
 
 	/**
@@ -122,7 +122,7 @@ class Worker
 	 */
 	private function processNextJob( string $queue ): bool
 	{
-		return $this->_QueueManager->processNextJob( $queue );
+		return $this->_queueManager->processNextJob( $queue );
 	}
 
 	/**
@@ -133,7 +133,7 @@ class Worker
 	public function stop(): void
 	{
 		Log::info( "Worker received stop signal, shutting down gracefully..." );
-		$this->_ShouldQuit = true;
+		$this->_shouldQuit = true;
 	}
 
 	/**
@@ -144,7 +144,7 @@ class Worker
 	 */
 	public function setSleep( int $seconds ): self
 	{
-		$this->_Sleep = $seconds;
+		$this->_sleep = $seconds;
 		return $this;
 	}
 
@@ -156,7 +156,7 @@ class Worker
 	 */
 	public function setMaxJobs( int $maxJobs ): self
 	{
-		$this->_MaxJobs = $maxJobs;
+		$this->_maxJobs = $maxJobs;
 		return $this;
 	}
 
@@ -168,7 +168,7 @@ class Worker
 	 */
 	public function setTimeout( int $timeout ): self
 	{
-		$this->_Timeout = $timeout;
+		$this->_timeout = $timeout;
 		return $this;
 	}
 
@@ -180,7 +180,7 @@ class Worker
 	 */
 	public function setStopWhenEmpty( bool $stop ): self
 	{
-		$this->_StopWhenEmpty = $stop;
+		$this->_stopWhenEmpty = $stop;
 		return $this;
 	}
 
@@ -191,7 +191,7 @@ class Worker
 	 */
 	public function getJobsProcessed(): int
 	{
-		return $this->_JobsProcessed;
+		return $this->_jobsProcessed;
 	}
 
 	/**
@@ -201,7 +201,7 @@ class Worker
 	 */
 	public function getSleep(): int
 	{
-		return $this->_Sleep;
+		return $this->_sleep;
 	}
 
 	/**
@@ -211,7 +211,7 @@ class Worker
 	 */
 	public function getMaxJobs(): int
 	{
-		return $this->_MaxJobs;
+		return $this->_maxJobs;
 	}
 
 	/**
@@ -221,6 +221,6 @@ class Worker
 	 */
 	public function getTimeout(): int
 	{
-		return $this->_Timeout;
+		return $this->_timeout;
 	}
 }

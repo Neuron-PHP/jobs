@@ -3,14 +3,14 @@
 namespace Neuron\Jobs\Cli\Commands;
 
 use Neuron\Cli\Commands\Command;
-use Neuron\Jobs\Queue\QueueManager;
-use Neuron\Patterns\Registry;
+use Neuron\Jobs\Cli\Traits\HasQueueManager;
 
 /**
  * CLI command for flushing queue or failed jobs.
  */
 class FlushCommand extends Command
 {
+	use HasQueueManager;
 	public function getName(): string
 	{
 		return 'jobs:flush';
@@ -51,20 +51,5 @@ class FlushCommand extends Command
 		$this->output->success( "Flushed {$count} job(s) from queue: {$queue}" );
 
 		return 0;
-	}
-
-	private function getQueueManager(): ?QueueManager
-	{
-		$registry = Registry::getInstance();
-		$queueManager = $registry->get( 'queue.manager' );
-
-		if( !$queueManager )
-		{
-			$settings = $registry->get( 'settings' );
-			$queueManager = new QueueManager( $settings );
-			$registry->set( 'queue.manager', $queueManager );
-		}
-
-		return $queueManager;
 	}
 }

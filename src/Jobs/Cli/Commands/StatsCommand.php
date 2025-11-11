@@ -3,29 +3,44 @@
 namespace Neuron\Jobs\Cli\Commands;
 
 use Neuron\Cli\Commands\Command;
-use Neuron\Jobs\Queue\QueueManager;
-use Neuron\Patterns\Registry;
+use Neuron\Jobs\Cli\Traits\HasQueueManager;
 
 /**
  * CLI command for showing queue statistics.
  */
 class StatsCommand extends Command
 {
+	use HasQueueManager;
+
+	/**
+	 * Get command name.
+	 */
 	public function getName(): string
 	{
 		return 'jobs:stats';
 	}
 
+	/**
+	 * Get command description.
+	 */
 	public function getDescription(): string
 	{
 		return 'Show queue statistics';
 	}
 
+	/**
+	 * Configure command options.
+	 */
 	public function configure(): void
 	{
 		$this->addOption( 'queue', 'Q', true, 'Queue to show stats for (comma-separated)', 'default' );
 	}
 
+	/**
+	 * Execute the command.
+	 *
+	 * @return int Exit code.
+	 */
 	public function execute(): int
 	{
 		$queueManager = $this->getQueueManager();
@@ -66,20 +81,5 @@ class StatsCommand extends Command
 		$this->output->info( "Total failed jobs: {$failedCount}" );
 
 		return 0;
-	}
-
-	private function getQueueManager(): ?QueueManager
-	{
-		$registry = Registry::getInstance();
-		$queueManager = $registry->get( 'queue.manager' );
-
-		if( !$queueManager )
-		{
-			$settings = $registry->get( 'settings' );
-			$queueManager = new QueueManager( $settings );
-			$registry->set( 'queue.manager', $queueManager );
-		}
-
-		return $queueManager;
 	}
 }

@@ -52,22 +52,22 @@ use Symfony\Component\Yaml\Yaml;
 
 class Scheduler extends CommandLineBase
 {
-	private bool $_Poll = false;
-	private int $_Interval = 60;
-	private array $_Jobs = [];
-	private string $_ConfigFile =  'schedule.yaml';
-	private bool $_Debug = false;
-	private ?string $_BasePath = null;
+	private bool $_poll = false;
+	private int $_interval = 60;
+	private array $_jobs = [];
+	private string $_configFile =  'schedule.yaml';
+	private bool $_debug = false;
+	private ?string $_basePath = null;
 
 
 	/**
-	 * @param bool $Debug
+	 * @param bool $debug
 	 * @return Scheduler
 	 */
 
-	public function setDebug( bool $Debug ): Scheduler
+	public function setDebug( bool $debug ): Scheduler
 	{
-		$this->_Debug = $Debug;
+		$this->_debug = $debug;
 		return $this;
 	}
 
@@ -78,17 +78,17 @@ class Scheduler extends CommandLineBase
 
 	public function getConfigFile(): string
 	{
-		return $this->_ConfigFile;
+		return $this->_configFile;
 	}
 
 	/**
-	 * @param string $ConfigFile
+	 * @param string $configFile
 	 * @return Scheduler
 	 */
 
-	public function setConfigFile( string $ConfigFile ): Scheduler
+	public function setConfigFile( string $configFile ): Scheduler
 	{
-		$this->_ConfigFile = $ConfigFile;
+		$this->_configFile = $configFile;
 		return $this;
 	}
 
@@ -104,13 +104,13 @@ class Scheduler extends CommandLineBase
 	}
 
 	/**
-	 * @param int $Interval
+	 * @param int $interval
 	 * @return Scheduler
 	 */
 
-	public function setInterval( int $Interval ): Scheduler
+	public function setInterval( int $interval ): Scheduler
 	{
-		$this->_Interval = $Interval;
+		$this->_interval = $interval;
 		return $this;
 	}
 
@@ -120,7 +120,7 @@ class Scheduler extends CommandLineBase
 
 	public function getInterval(): int
 	{
-		return $this->_Interval;
+		return $this->_interval;
 	}
 
 	/**
@@ -131,30 +131,30 @@ class Scheduler extends CommandLineBase
 	 */
 	public function setBasePath( string $basePath ): Scheduler
 	{
-		$this->_BasePath = $basePath . '/config';
+		$this->_basePath = $basePath . '/config';
 		return $this;
 	}
 
 	/**
 	 * Add a job to the scheduler
 	 *
-	 * @param string $Name Job name
-	 * @param string $Cron Cron expression
-	 * @param IJob $Job Job instance
-	 * @param array $Arguments Job arguments
-	 * @param string|null $Queue Queue name (null = run directly, not queued)
+	 * @param string $name Job name
+	 * @param string $cron Cron expression
+	 * @param IJob $job Job instance
+	 * @param array $arguments Job arguments
+	 * @param string|null $queue Queue name (null = run directly, not queued)
 	 */
 
-	public function addJob( string $Name, string $Cron, IJob $Job, array $Arguments = [], ?string $Queue = null ): void
+	public function addJob( string $name, string $cron, IJob $job, array $arguments = [], ?string $queue = null ): void
 	{
-		Log::debug( "Adding job: {$Job->getName()} $Cron" . ( $Queue ? " [queue: $Queue]" : " [direct]" ) );
+		Log::debug( "Adding job: {$job->getName()} $cron" . ( $queue ? " [queue: $queue]" : " [direct]" ) );
 
-		$this->_Jobs[] = [
-			'name' => $Name,
-			'cron' => new CronExpression( $Cron ),
-			'job'  => $Job,
-			'args' => $Arguments,
-			'queue' => $Queue
+		$this->_jobs[] = [
+			'name' => $name,
+			'cron' => new CronExpression( $cron ),
+			'job'  => $job,
+			'args' => $arguments,
+			'queue' => $queue
 		];
 	}
 
@@ -164,33 +164,33 @@ class Scheduler extends CommandLineBase
 
 	public function getJobs(): array
 	{
-		return $this->_Jobs;
+		return $this->_jobs;
 	}
 
 	/**
 	 * Schedule jobs from configuration
 	 *
-	 * @param array $Schedule Schedule configuration array
+	 * @param array $schedule Schedule configuration array
 	 * @return void
 	 */
 
-	public function scheduleJobs( $Schedule ): void
+	public function scheduleJobs( $schedule ): void
 	{
-		foreach( $Schedule as $Name => $Job )
+		foreach( $schedule as $name => $job )
 		{
-			$Class = $Job[ 'class' ];
-			if( !class_exists( $Class ) )
+			$class = $job[ 'class' ];
+			if( !class_exists( $class ) )
 			{
-				Log::error( "Class not found: $Class" );
+				Log::error( "Class not found: $class" );
 				continue;
 			}
 
 			$this->addJob(
-				$Name,
-				$Job[ 'cron' ],
-				new $Class(),
-				$Job[ 'args' ] ?? [],
-				$Job[ 'queue' ] ?? null
+				$name,
+				$job[ 'cron' ],
+				new $class(),
+				$job[ 'args' ] ?? [],
+				$job[ 'queue' ] ?? null
 			);
 		}
 	}
@@ -201,9 +201,9 @@ class Scheduler extends CommandLineBase
 
 	public function loadSchedule() : array
 	{
-		$Path = $this->_BasePath ?? $this->getBasePath().'/config';
+		$path = $this->_basePath ?? $this->getBasePath().'/config';
 
-		if( !file_exists( $Path . '/'. $this->getConfigFile() ) )
+		if( !file_exists( $path . '/'. $this->getConfigFile() ) )
 		{
 			Log::debug( "schedule.yaml not found." );
 			return [];
@@ -211,7 +211,7 @@ class Scheduler extends CommandLineBase
 
 		try
 		{
-			$Data = Yaml::parseFile( $Path . '/'. $this->getConfigFile() );
+			$data = Yaml::parseFile( $path . '/'. $this->getConfigFile() );
 		}
 		catch( ParseException $exception )
 		{
@@ -219,7 +219,7 @@ class Scheduler extends CommandLineBase
 			return [];
 		}
 
-		return $Data;
+		return $data;
 	}
 
 	/**
@@ -229,14 +229,14 @@ class Scheduler extends CommandLineBase
 
 	private function initSchedule(): void
 	{
-		$Data = $this->loadSchedule();
+		$data = $this->loadSchedule();
 
-		if( empty( $Data ) )
+		if( empty( $data ) )
 		{
 			return;
 		}
 
-		$this->scheduleJobs( $Data[ 'schedule' ] );
+		$this->scheduleJobs( $data[ 'schedule' ] );
 	}
 
 	/**
@@ -246,20 +246,20 @@ class Scheduler extends CommandLineBase
 
 	protected function pollCommand(): bool
 	{
-		$this->_Poll = true;
+		$this->_poll = true;
 
 		return true;
 	}
 
 	/**
 	 * Command line parameter to set the interval between polls.
-	 * @param int $Interval interval in seconds.
+	 * @param int $interval interval in seconds.
 	 * @return bool
 	 */
 
-	protected function intervalCommand( int $Interval ): bool
+	protected function intervalCommand( int $interval ): bool
 	{
-		$this->setInterval( $Interval );
+		$this->setInterval( $interval );
 		Log::debug( "Setting interval to: {$this->getInterval()}" );
 
 		return true;
@@ -278,9 +278,9 @@ class Scheduler extends CommandLineBase
 		{
 			$this->poll();
 
-			sleep( $this->_Interval );
+			sleep( $this->_interval );
 
-			if( $this->_Debug )
+			if( $this->_debug )
 			{
 				break;
 			}
@@ -298,38 +298,38 @@ class Scheduler extends CommandLineBase
 	{
 		Log::debug( "Polling.." );
 
-		$Count = 0;
+		$count = 0;
 
-		foreach( $this->_Jobs as $Job )
+		foreach( $this->_jobs as $job )
 		{
-			Log::debug( "Checking job: {$Job['name']}" );
+			Log::debug( "Checking job: {$job['name']}" );
 
-			if( $Job[ 'cron' ]->isDue() )
+			if( $job[ 'cron' ]->isDue() )
 			{
 				// If queue is specified, dispatch to queue instead of running directly
-				if( isset( $Job['queue'] ) && $Job['queue'] !== null )
+				if( isset( $job['queue'] ) && $job['queue'] !== null )
 				{
-					Log::debug( "Dispatching job to queue: {$Job['name']} -> {$Job['queue']}" );
+					Log::debug( "Dispatching job to queue: {$job['name']} -> {$job['queue']}" );
 
 					dispatch(
-						$Job[ 'job' ],
-						$Job[ 'args' ],
-						$Job[ 'queue' ]
+						$job[ 'job' ],
+						$job[ 'args' ],
+						$job[ 'queue' ]
 					);
 				}
 				else
 				{
 					// Run directly in scheduler process (current behavior)
-					Log::debug( "Running job directly: {$Job['name']}" );
+					Log::debug( "Running job directly: {$job['name']}" );
 
-					$Job[ 'job' ]->run( $Job[ 'args' ] );
+					$job[ 'job' ]->run( $job[ 'args' ] );
 				}
 
-				$Count++;
+				$count++;
 			}
 		}
 
-		return $Count;
+		return $count;
 	}
 
 	/**
@@ -344,7 +344,7 @@ class Scheduler extends CommandLineBase
 
 		$this->initSchedule();
 
-		if( count( $this->_Jobs ) == 0 )
+		if( count( $this->_jobs ) == 0 )
 		{
 			Log::error( "No jobs defined." );
 			fprintf( STDERR, "No jobs defined.\n" );
@@ -365,12 +365,12 @@ class Scheduler extends CommandLineBase
 	}
 
 	/**
-	 * @param array $Argv
+	 * @param array $argv
 	 */
 
-	protected function onRun( array $Argv = [] ): void
+	protected function onRun( array $argv = [] ): void
 	{
-		if( $this->_Poll )
+		if( $this->_poll )
 		{
 			$this->poll();
 			return;

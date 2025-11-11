@@ -15,19 +15,19 @@ use Neuron\Log\Log;
  */
 class FileQueue implements IQueue
 {
-	private string $_Path;
-	private string $_FailedPath;
+	private string $_path;
+	private string $_failedPath;
 
 	/**
 	 * @param array $config Configuration array
 	 */
 	public function __construct( array $config = [] )
 	{
-		$this->_Path = rtrim( $config['path'] ?? 'storage/queue', '/' );
-		$this->_FailedPath = $this->_Path . '/failed';
+		$this->_path = rtrim( $config['path'] ?? 'storage/queue', '/' );
+		$this->_failedPath = $this->_path . '/failed';
 
-		$this->ensureDirectoryExists( $this->_Path );
-		$this->ensureDirectoryExists( $this->_FailedPath );
+		$this->ensureDirectoryExists( $this->_path );
+		$this->ensureDirectoryExists( $this->_failedPath );
 	}
 
 	/**
@@ -236,7 +236,7 @@ class FileQueue implements IQueue
 	 */
 	public function failed( QueuedJob $job, \Throwable $exception ): void
 	{
-		$filename = $this->_FailedPath . '/failed_' . $job->getId() . '.json';
+		$filename = $this->_failedPath . '/failed_' . $job->getId() . '.json';
 
 		$data = [
 			'id' => $job->getId(),
@@ -308,7 +308,7 @@ class FileQueue implements IQueue
 	 */
 	public function getFailedJobs(): array
 	{
-		$files = glob( $this->_FailedPath . '/failed_*.json' );
+		$files = glob( $this->_failedPath . '/failed_*.json' );
 		$jobs = [];
 
 		foreach( $files as $file )
@@ -333,7 +333,7 @@ class FileQueue implements IQueue
 	 */
 	public function retryFailedJob( string $id ): bool
 	{
-		$filename = $this->_FailedPath . '/failed_' . $id . '.json';
+		$filename = $this->_failedPath . '/failed_' . $id . '.json';
 
 		if( !file_exists( $filename ) )
 		{
@@ -380,7 +380,7 @@ class FileQueue implements IQueue
 	 */
 	public function forgetFailedJob( string $id ): bool
 	{
-		$filename = $this->_FailedPath . '/failed_' . $id . '.json';
+		$filename = $this->_failedPath . '/failed_' . $id . '.json';
 
 		if( file_exists( $filename ) )
 		{
@@ -397,7 +397,7 @@ class FileQueue implements IQueue
 	 */
 	public function clearFailedJobs(): int
 	{
-		$files = glob( $this->_FailedPath . '/failed_*.json' );
+		$files = glob( $this->_failedPath . '/failed_*.json' );
 		$count = 0;
 
 		foreach( $files as $file )
@@ -421,7 +421,7 @@ class FileQueue implements IQueue
 	 */
 	private function getQueuePath( string $queue ): string
 	{
-		return $this->_Path . '/' . $queue;
+		return $this->_path . '/' . $queue;
 	}
 
 	/**
