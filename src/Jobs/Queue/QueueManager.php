@@ -16,11 +16,11 @@ use Neuron\Log\Log;
  */
 class QueueManager
 {
-	private IQueue $_Driver;
-	private array $_Config;
-	private int $_MaxAttempts = 3;
-	private int $_RetryAfter = 90;
-	private int $_Backoff = 0;
+	private IQueue $_driver;
+	private array $_config;
+	private int $_maxAttempts = 3;
+	private int $_retryAfter = 90;
+	private int $_backoff = 0;
 
 	/**
 	 * @param ISettingSource|null $settings Settings source for configuration
@@ -28,11 +28,11 @@ class QueueManager
 	 */
 	public function __construct( ?ISettingSource $settings = null, ?array $config = null )
 	{
-		$this->_Config = $config ?? $this->loadConfig( $settings );
-		$this->_MaxAttempts = $this->_Config['max_attempts'] ?? 3;
-		$this->_RetryAfter = $this->_Config['retry_after'] ?? 90;
-		$this->_Backoff = $this->_Config['backoff'] ?? 0;
-		$this->_Driver = $this->createDriver( $this->_Config );
+		$this->_config = $config ?? $this->loadConfig( $settings );
+		$this->_maxAttempts = $this->_config['max_attempts'] ?? 3;
+		$this->_retryAfter = $this->_config['retry_after'] ?? 90;
+		$this->_backoff = $this->_config['backoff'] ?? 0;
+		$this->_driver = $this->createDriver( $this->_config );
 	}
 
 	/**
@@ -128,9 +128,9 @@ class QueueManager
 	 */
 	public function dispatch( IJob $job, array $args = [], ?string $queue = null, int $delay = 0 ): string
 	{
-		$queue = $queue ?? $this->_Config['default_queue'] ?? 'default';
+		$queue = $queue ?? $this->_config['default_queue'] ?? 'default';
 
-		return $this->_Driver->push( $job, $args, $queue, $delay );
+		return $this->_driver->push( $job, $args, $queue, $delay );
 	}
 
 	/**
@@ -155,9 +155,9 @@ class QueueManager
 	 */
 	public function processNextJob( ?string $queue = null ): bool
 	{
-		$queue = $queue ?? $this->_Config['default_queue'] ?? 'default';
+		$queue = $queue ?? $this->_config['default_queue'] ?? 'default';
 
-		$queuedJob = $this->_Driver->pop( $queue );
+		$queuedJob = $this->_driver->pop( $queue );
 
 		if( !$queuedJob )
 		{
@@ -172,7 +172,7 @@ class QueueManager
 
 			$job->run( $queuedJob->getArguments() );
 
-			$this->_Driver->delete( $queuedJob );
+			$this->_driver->delete( $queuedJob );
 
 			Log::info( "Job completed: {$queuedJob->getId()}" );
 
@@ -197,21 +197,21 @@ class QueueManager
 	 */
 	private function handleFailedJob( QueuedJob $job, \Throwable $exception ): void
 	{
-		if( $job->getAttempts() < $this->_MaxAttempts )
+		if( $job->getAttempts() < $this->_maxAttempts )
 		{
 			// Retry with exponential backoff
 			$delay = $this->calculateBackoff( $job->getAttempts() );
 
-			Log::info( "Retrying job {$job->getId()} in {$delay} seconds (attempt {$job->getAttempts()} of {$this->_MaxAttempts})" );
+			Log::info( "Retrying job {$job->getId()} in {$delay} seconds (attempt {$job->getAttempts()} of {$this->_maxAttempts})" );
 
-			$this->_Driver->release( $job, $delay );
+			$this->_driver->release( $job, $delay );
 		}
 		else
 		{
 			// Max attempts reached, mark as failed
 			Log::error( "Job {$job->getId()} failed permanently after {$job->getAttempts()} attempts" );
 
-			$this->_Driver->failed( $job, $exception );
+			$this->_driver->failed( $job, $exception );
 		}
 	}
 
@@ -223,13 +223,13 @@ class QueueManager
 	 */
 	private function calculateBackoff( int $attempts ): int
 	{
-		if( $this->_Backoff === 0 )
+		if( $this->_backoff === 0 )
 		{
 			return 0;
 		}
 
 		// Exponential backoff: backoff * (2 ^ (attempts - 1))
-		return $this->_Backoff * ( 2 ** ( $attempts - 1 ) );
+		return $this->_backoff * ( 2 ** ( $attempts - 1 ) );
 	}
 
 	/**
@@ -240,9 +240,9 @@ class QueueManager
 	 */
 	public function size( ?string $queue = null ): int
 	{
-		$queue = $queue ?? $this->_Config['default_queue'] ?? 'default';
+		$queue = $queue ?? $this->_config['default_queue'] ?? 'default';
 
-		return $this->_Driver->size( $queue );
+		return $this->_driver->size( $queue );
 	}
 
 	/**
@@ -253,9 +253,9 @@ class QueueManager
 	 */
 	public function clear( ?string $queue = null ): int
 	{
-		$queue = $queue ?? $this->_Config['default_queue'] ?? 'default';
+		$queue = $queue ?? $this->_config['default_queue'] ?? 'default';
 
-		return $this->_Driver->clear( $queue );
+		return $this->_driver->clear( $queue );
 	}
 
 	/**
@@ -265,7 +265,7 @@ class QueueManager
 	 */
 	public function getFailedJobs(): array
 	{
-		return $this->_Driver->getFailedJobs();
+		return $this->_driver->getFailedJobs();
 	}
 
 	/**
@@ -276,7 +276,7 @@ class QueueManager
 	 */
 	public function retryFailedJob( string $id ): bool
 	{
-		return $this->_Driver->retryFailedJob( $id );
+		return $this->_driver->retryFailedJob( $id );
 	}
 
 	/**
@@ -308,7 +308,7 @@ class QueueManager
 	 */
 	public function forgetFailedJob( string $id ): bool
 	{
-		return $this->_Driver->forgetFailedJob( $id );
+		return $this->_driver->forgetFailedJob( $id );
 	}
 
 	/**
@@ -318,7 +318,7 @@ class QueueManager
 	 */
 	public function clearFailedJobs(): int
 	{
-		return $this->_Driver->clearFailedJobs();
+		return $this->_driver->clearFailedJobs();
 	}
 
 	/**
@@ -328,7 +328,7 @@ class QueueManager
 	 */
 	public function getDriver(): IQueue
 	{
-		return $this->_Driver;
+		return $this->_driver;
 	}
 
 	/**
@@ -338,6 +338,6 @@ class QueueManager
 	 */
 	public function getConfig(): array
 	{
-		return $this->_Config;
+		return $this->_config;
 	}
 }

@@ -3,9 +3,8 @@
 namespace Neuron\Jobs\Cli\Commands;
 
 use Neuron\Cli\Commands\Command;
-use Neuron\Jobs\Queue\QueueManager;
+use Neuron\Jobs\Cli\Traits\HasQueueManager;
 use Neuron\Jobs\Queue\Worker;
-use Neuron\Patterns\Registry;
 
 /**
  * CLI command for running the queue worker.
@@ -14,6 +13,7 @@ use Neuron\Patterns\Registry;
  */
 class WorkCommand extends Command
 {
+	use HasQueueManager;
 	/**
 	 * @inheritDoc
 	 */
@@ -112,33 +112,6 @@ class WorkCommand extends Command
 
 			return 1;
 		}
-	}
-
-	/**
-	 * Get queue manager instance
-	 *
-	 * @return QueueManager|null
-	 */
-	private function getQueueManager(): ?QueueManager
-	{
-		$registry = Registry::getInstance();
-
-		// Check if queue manager is already in registry
-		$queueManager = $registry->get( 'queue.manager' );
-
-		if( $queueManager )
-		{
-			return $queueManager;
-		}
-
-		// Try to get settings from registry
-		$settings = $registry->get( 'settings' );
-
-		// Create new queue manager
-		$queueManager = new QueueManager( $settings );
-		$registry->set( 'queue.manager', $queueManager );
-
-		return $queueManager;
 	}
 
 	/**

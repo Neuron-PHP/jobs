@@ -15,20 +15,20 @@ use Neuron\Log\Log;
  */
 class DatabaseQueue implements IQueue
 {
-	private \PDO $_Connection;
-	private string $_JobsTable = 'jobs';
-	private string $_FailedJobsTable = 'failed_jobs';
-	private int $_RetryAfter = 90; // seconds
+	private \PDO $_connection;
+	private string $_jobsTable = 'jobs';
+	private string $_failedJobsTable = 'failed_jobs';
+	private int $_retryAfter = 90; // seconds
 
 	/**
 	 * @param array $config Database configuration
 	 */
 	public function __construct( array $config )
 	{
-		$this->_Connection = $this->createConnection( $config );
-		$this->_JobsTable = $config['jobs_table'] ?? 'jobs';
-		$this->_FailedJobsTable = $config['failed_jobs_table'] ?? 'failed_jobs';
-		$this->_RetryAfter = $config['retry_after'] ?? 90;
+		$this->_connection = $this->createConnection( $config );
+		$this->_jobsTable = $config['jobs_table'] ?? 'jobs';
+		$this->_failedJobsTable = $config['failed_jobs_table'] ?? 'failed_jobs';
+		$this->_retryAfter = $config['retry_after'] ?? 90;
 	}
 
 	/**
@@ -78,11 +78,11 @@ class DatabaseQueue implements IQueue
 	{
 		$queuedJob = QueuedJob::fromJob( $job, $args, $queue, $delay );
 
-		$sql = "INSERT INTO {$this->_JobsTable}
+		$sql = "INSERT INTO {$this->_jobsTable}
 			(id, queue, payload, attempts, reserved_at, available_at, created_at)
 			VALUES (:id, :queue, :payload, :attempts, :reserved_at, :available_at, :created_at)";
 
-		$stmt = $this->_Connection->prepare( $sql );
+		$stmt = $this->_connection->prepare( $sql );
 
 		$stmt->execute([
 			'id' => $queuedJob->getId(),
@@ -107,14 +107,14 @@ class DatabaseQueue implements IQueue
 		$this->releaseExpiredJobs( $queue );
 
 		// Get the next available job
-		$sql = "SELECT * FROM {$this->_JobsTable}
+		$sql = "SELECT * FROM {$this->_jobsTable}
 			WHERE queue = :queue
 			AND available_at <= :now
 			AND reserved_at IS NULL
 			ORDER BY available_at ASC
 			LIMIT 1";
 
-		$stmt = $this->_Connection->prepare( $sql );
+		$stmt = $this->_connection->prepare( $sql );
 		$stmt->execute([
 			'queue' => $queue,
 			'now' => time()
@@ -128,11 +128,11 @@ class DatabaseQueue implements IQueue
 		}
 
 		// Reserve the job
-		$updateSql = "UPDATE {$this->_JobsTable}
+		$updateSql = "UPDATE {$this->_jobsTable}
 			SET reserved_at = :reserved_at, attempts = attempts + 1
 			WHERE id = :id AND reserved_at IS NULL";
 
-		$updateStmt = $this->_Connection->prepare( $updateSql );
+		$updateStmt = $this->_connection->prepare( $updateSql );
 		$reservedAt = time();
 
 		$updateStmt->execute([
@@ -170,15 +170,15 @@ class DatabaseQueue implements IQueue
 	 */
 	private function releaseExpiredJobs( string $queue ): void
 	{
-		$expiredTime = time() - $this->_RetryAfter;
+		$expiredTime = time() - $this->_retryAfter;
 
-		$sql = "UPDATE {$this->_JobsTable}
+		$sql = "UPDATE {$this->_jobsTable}
 			SET reserved_at = NULL, available_at = :available_at
 			WHERE queue = :queue
 			AND reserved_at IS NOT NULL
 			AND reserved_at < :expired_time";
 
-		$stmt = $this->_Connection->prepare( $sql );
+		$stmt = $this->_connection->prepare( $sql );
 		$stmt->execute([
 			'available_at' => time(),
 			'queue' => $queue,
@@ -196,11 +196,11 @@ class DatabaseQueue implements IQueue
 	 */
 	public function release( QueuedJob $job, int $delay = 0 ): void
 	{
-		$sql = "UPDATE {$this->_JobsTable}
+		$sql = "UPDATE {$this->_jobsTable}
 			SET reserved_at = NULL, available_at = :available_at
 			WHERE id = :id";
 
-		$stmt = $this->_Connection->prepare( $sql );
+		$stmt = $this->_connection->prepare( $sql );
 		$stmt->execute([
 			'available_at' => time() + $delay,
 			'id' => $job->getId()
@@ -214,9 +214,9 @@ class DatabaseQueue implements IQueue
 	 */
 	public function delete( QueuedJob $job ): void
 	{
-		$sql = "DELETE FROM {$this->_JobsTable} WHERE id = :id";
+		$sql = "DELETE FROM {$this->_jobsTable} WHERE id = :id";
 
-		$stmt = $this->_Connection->prepare( $sql );
+		$stmt = $this->_connection->prepare( $sql );
 		$stmt->execute([ 'id' => $job->getId() ]);
 
 		Log::debug( "Job deleted from queue: {$job->getId()}" );
@@ -228,11 +228,11 @@ class DatabaseQueue implements IQueue
 	public function failed( QueuedJob $job, \Throwable $exception ): void
 	{
 		// Insert into failed jobs table
-		$sql = "INSERT INTO {$this->_FailedJobsTable}
+		$sql = "INSERT INTO {$this->_failedJobsTable}
 			(id, queue, payload, exception, failed_at)
 			VALUES (:id, :queue, :payload, :exception, :failed_at)";
 
-		$stmt = $this->_Connection->prepare( $sql );
+		$stmt = $this->_connection->prepare( $sql );
 		$stmt->execute([
 			'id' => $job->getId(),
 			'queue' => $job->getQueue(),
@@ -268,10 +268,10 @@ class DatabaseQueue implements IQueue
 	 */
 	public function size( string $queue = 'default' ): int
 	{
-		$sql = "SELECT COUNT(*) as count FROM {$this->_JobsTable}
+		$sql = "SELECT COUNT(*) as count FROM {$this->_jobsTable}
 			WHERE queue = :queue AND reserved_at IS NULL";
 
-		$stmt = $this->_Connection->prepare( $sql );
+		$stmt = $this->_connection->prepare( $sql );
 		$stmt->execute([ 'queue' => $queue ]);
 
 		$row = $stmt->fetch();
@@ -284,9 +284,9 @@ class DatabaseQueue implements IQueue
 	 */
 	public function clear( string $queue = 'default' ): int
 	{
-		$sql = "DELETE FROM {$this->_JobsTable} WHERE queue = :queue";
+		$sql = "DELETE FROM {$this->_jobsTable} WHERE queue = :queue";
 
-		$stmt = $this->_Connection->prepare( $sql );
+		$stmt = $this->_connection->prepare( $sql );
 		$stmt->execute([ 'queue' => $queue ]);
 
 		$count = $stmt->rowCount();
@@ -301,9 +301,9 @@ class DatabaseQueue implements IQueue
 	 */
 	public function getFailedJobs(): array
 	{
-		$sql = "SELECT * FROM {$this->_FailedJobsTable} ORDER BY failed_at DESC";
+		$sql = "SELECT * FROM {$this->_failedJobsTable} ORDER BY failed_at DESC";
 
-		$stmt = $this->_Connection->query( $sql );
+		$stmt = $this->_connection->query( $sql );
 
 		return $stmt->fetchAll();
 	}
@@ -314,9 +314,9 @@ class DatabaseQueue implements IQueue
 	public function retryFailedJob( string $id ): bool
 	{
 		// Get failed job
-		$sql = "SELECT * FROM {$this->_FailedJobsTable} WHERE id = :id";
+		$sql = "SELECT * FROM {$this->_failedJobsTable} WHERE id = :id";
 
-		$stmt = $this->_Connection->prepare( $sql );
+		$stmt = $this->_connection->prepare( $sql );
 		$stmt->execute([ 'id' => $id ]);
 
 		$row = $stmt->fetch();
@@ -327,11 +327,11 @@ class DatabaseQueue implements IQueue
 		}
 
 		// Insert back into jobs table
-		$insertSql = "INSERT INTO {$this->_JobsTable}
+		$insertSql = "INSERT INTO {$this->_jobsTable}
 			(id, queue, payload, attempts, reserved_at, available_at, created_at)
 			VALUES (:id, :queue, :payload, 0, NULL, :available_at, :created_at)";
 
-		$insertStmt = $this->_Connection->prepare( $insertSql );
+		$insertStmt = $this->_connection->prepare( $insertSql );
 		$insertStmt->execute([
 			'id' => uniqid( 'job_', true ), // New ID for retry
 			'queue' => $row['queue'],
@@ -341,9 +341,9 @@ class DatabaseQueue implements IQueue
 		]);
 
 		// Delete from failed jobs
-		$deleteSql = "DELETE FROM {$this->_FailedJobsTable} WHERE id = :id";
+		$deleteSql = "DELETE FROM {$this->_failedJobsTable} WHERE id = :id";
 
-		$deleteStmt = $this->_Connection->prepare( $deleteSql );
+		$deleteStmt = $this->_connection->prepare( $deleteSql );
 		$deleteStmt->execute([ 'id' => $id ]);
 
 		Log::info( "Failed job retried: {$id}" );
@@ -356,9 +356,9 @@ class DatabaseQueue implements IQueue
 	 */
 	public function forgetFailedJob( string $id ): bool
 	{
-		$sql = "DELETE FROM {$this->_FailedJobsTable} WHERE id = :id";
+		$sql = "DELETE FROM {$this->_failedJobsTable} WHERE id = :id";
 
-		$stmt = $this->_Connection->prepare( $sql );
+		$stmt = $this->_connection->prepare( $sql );
 		$stmt->execute([ 'id' => $id ]);
 
 		if( $stmt->rowCount() > 0 )
@@ -375,9 +375,9 @@ class DatabaseQueue implements IQueue
 	 */
 	public function clearFailedJobs(): int
 	{
-		$sql = "DELETE FROM {$this->_FailedJobsTable}";
+		$sql = "DELETE FROM {$this->_failedJobsTable}";
 
-		$stmt = $this->_Connection->query( $sql );
+		$stmt = $this->_connection->query( $sql );
 		$count = $stmt->rowCount();
 
 		Log::info( "Cleared {$count} failed jobs" );

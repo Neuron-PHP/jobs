@@ -14,15 +14,15 @@ use Neuron\Jobs\IJob;
  */
 class QueuedJob
 {
-	private string $_Id;
-	private string $_Queue;
-	private string $_JobClass;
-	private array $_Arguments;
-	private int $_Attempts;
-	private ?int $_ReservedAt;
-	private int $_AvailableAt;
-	private int $_CreatedAt;
-	private ?string $_RawPayload = null;
+	private string $_id;
+	private string $_queue;
+	private string $_jobClass;
+	private array $_arguments;
+	private int $_attempts;
+	private ?int $_reservedAt;
+	private int $_availableAt;
+	private int $_createdAt;
+	private ?string $_rawPayload = null;
 
 	/**
 	 * @param string $id Unique job ID
@@ -45,14 +45,14 @@ class QueuedJob
 		int $createdAt = 0
 	)
 	{
-		$this->_Id = $id;
-		$this->_Queue = $queue;
-		$this->_JobClass = $jobClass;
-		$this->_Arguments = $arguments;
-		$this->_Attempts = $attempts;
-		$this->_ReservedAt = $reservedAt;
-		$this->_AvailableAt = $availableAt ?: time();
-		$this->_CreatedAt = $createdAt ?: time();
+		$this->_id = $id;
+		$this->_queue = $queue;
+		$this->_jobClass = $jobClass;
+		$this->_arguments = $arguments;
+		$this->_attempts = $attempts;
+		$this->_reservedAt = $reservedAt;
+		$this->_availableAt = $availableAt ?: time();
+		$this->_createdAt = $createdAt ?: time();
 	}
 
 	/**
@@ -131,16 +131,16 @@ class QueuedJob
 	 */
 	public function getJob(): IJob
 	{
-		if( !class_exists( $this->_JobClass ) )
+		if( !class_exists( $this->_jobClass ) )
 		{
-			throw new \RuntimeException( "Job class not found: {$this->_JobClass}" );
+			throw new \RuntimeException( "Job class not found: {$this->_jobClass}" );
 		}
 
-		$job = new $this->_JobClass();
+		$job = new $this->_jobClass();
 
 		if( !$job instanceof IJob )
 		{
-			throw new \RuntimeException( "Job class must implement IJob: {$this->_JobClass}" );
+			throw new \RuntimeException( "Job class must implement IJob: {$this->_jobClass}" );
 		}
 
 		return $job;
@@ -153,14 +153,14 @@ class QueuedJob
 	 */
 	public function getPayload(): string
 	{
-		if( $this->_RawPayload !== null )
+		if( $this->_rawPayload !== null )
 		{
-			return $this->_RawPayload;
+			return $this->_rawPayload;
 		}
 
 		return json_encode([
-			'class' => $this->_JobClass,
-			'args' => $this->_Arguments
+			'class' => $this->_jobClass,
+			'args' => $this->_arguments
 		], JSON_THROW_ON_ERROR );
 	}
 
@@ -171,7 +171,7 @@ class QueuedJob
 	 */
 	public function incrementAttempts(): void
 	{
-		$this->_Attempts++;
+		$this->_attempts++;
 	}
 
 	/**
@@ -181,7 +181,7 @@ class QueuedJob
 	 */
 	public function markAsReserved(): void
 	{
-		$this->_ReservedAt = time();
+		$this->_reservedAt = time();
 	}
 
 	/**
@@ -191,7 +191,7 @@ class QueuedJob
 	 */
 	public function isReserved(): bool
 	{
-		return $this->_ReservedAt !== null;
+		return $this->_reservedAt !== null;
 	}
 
 	/**
@@ -201,7 +201,7 @@ class QueuedJob
 	 */
 	public function isAvailable(): bool
 	{
-		return $this->_AvailableAt <= time();
+		return $this->_availableAt <= time();
 	}
 
 	/**
@@ -218,53 +218,53 @@ class QueuedJob
 
 	public function getId(): string
 	{
-		return $this->_Id;
+		return $this->_id;
 	}
 
 	public function getQueue(): string
 	{
-		return $this->_Queue;
+		return $this->_queue;
 	}
 
 	public function getJobClass(): string
 	{
-		return $this->_JobClass;
+		return $this->_jobClass;
 	}
 
 	public function getArguments(): array
 	{
-		return $this->_Arguments;
+		return $this->_arguments;
 	}
 
 	public function getAttempts(): int
 	{
-		return $this->_Attempts;
+		return $this->_attempts;
 	}
 
 	public function getReservedAt(): ?int
 	{
-		return $this->_ReservedAt;
+		return $this->_reservedAt;
 	}
 
 	public function getAvailableAt(): int
 	{
-		return $this->_AvailableAt;
+		return $this->_availableAt;
 	}
 
 	public function getCreatedAt(): int
 	{
-		return $this->_CreatedAt;
+		return $this->_createdAt;
 	}
 
 	// Setters
 
 	public function setAvailableAt( int $timestamp ): void
 	{
-		$this->_AvailableAt = $timestamp;
+		$this->_availableAt = $timestamp;
 	}
 
 	public function setReservedAt( ?int $timestamp ): void
 	{
-		$this->_ReservedAt = $timestamp;
+		$this->_reservedAt = $timestamp;
 	}
 }

@@ -3,14 +3,14 @@
 namespace Neuron\Jobs\Cli\Commands;
 
 use Neuron\Cli\Commands\Command;
-use Neuron\Jobs\Queue\QueueManager;
-use Neuron\Patterns\Registry;
+use Neuron\Jobs\Cli\Traits\HasQueueManager;
 
 /**
  * CLI command for listing failed jobs.
  */
 class FailedCommand extends Command
 {
+	use HasQueueManager;
 	public function getName(): string
 	{
 		return 'jobs:failed';
@@ -67,20 +67,5 @@ class FailedCommand extends Command
 		$this->output->info( "To forget a job: neuron jobs:forget <id>" );
 
 		return 0;
-	}
-
-	private function getQueueManager(): ?QueueManager
-	{
-		$registry = Registry::getInstance();
-		$queueManager = $registry->get( 'queue.manager' );
-
-		if( !$queueManager )
-		{
-			$settings = $registry->get( 'settings' );
-			$queueManager = new QueueManager( $settings );
-			$registry->set( 'queue.manager', $queueManager );
-		}
-
-		return $queueManager;
 	}
 }
