@@ -80,9 +80,9 @@ class ScheduleCommandTest extends TestCase
 		mkdir( $tempDir );
 		mkdir( $tempDir . '/config' );
 		
-		// Create a minimal config.yaml
+		// Create a minimal neuron.yaml
 		file_put_contents( 
-			$tempDir . '/config/config.yaml', 
+			$tempDir . '/config/neuron.yaml', 
 			"test: true\n" 
 		);
 		
@@ -112,7 +112,7 @@ class ScheduleCommandTest extends TestCase
 			$this->assertIsInt( $result );
 			
 			// Clean up
-			unlink( $tempDir . '/config/config.yaml' );
+			unlink( $tempDir . '/config/neuron.yaml' );
 			unlink( $tempDir . '/config/schedule.yaml' );
 			rmdir( $tempDir . '/config' );
 			rmdir( $tempDir );
@@ -120,9 +120,9 @@ class ScheduleCommandTest extends TestCase
 		catch( \Exception $e )
 		{
 			// Clean up on failure
-			if( file_exists( $tempDir . '/config/config.yaml' ) )
+			if( file_exists( $tempDir . '/config/neuron.yaml' ) )
 			{
-				unlink( $tempDir . '/config/config.yaml' );
+				unlink( $tempDir . '/config/neuron.yaml' );
 			}
 			if( file_exists( $tempDir . '/config/schedule.yaml' ) )
 			{
