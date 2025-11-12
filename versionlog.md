@@ -1,4 +1,5 @@
 ## 0.2.6
+* Renamed config.yaml to neuron.yaml
 
 ## 0.2.5 2025-11-11
 

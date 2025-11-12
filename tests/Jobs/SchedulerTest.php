@@ -38,7 +38,7 @@ class SchedulerTest extends TestCase
 	{
 		parent::setUp();
 
-		$Ini = new Yaml( './examples/config/config.yaml' );
+		$Ini = new Yaml( './examples/config/neuron.yaml' );
 		$this->App = new Scheduler( "1.0.0", $Ini );
 	}
 

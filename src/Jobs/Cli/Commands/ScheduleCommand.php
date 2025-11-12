@@ -155,8 +155,8 @@ class ScheduleCommand extends Command
 	{
 		// Try to load settings
 		$settings = null;
-		$configFile = $configPath . '/config.yaml';
-		
+		$configFile = $configPath . '/neuron.yaml';
+
 		if( file_exists( $configFile ) )
 		{
 			try
@@ -166,7 +166,7 @@ class ScheduleCommand extends Command
 			}
 			catch( \Exception $e )
 			{
-				$this->output->warning( 'Could not load config.yaml: ' . $e->getMessage() );
+				$this->output->warning( 'Could not load neuron.yaml: ' . $e->getMessage() );
 			}
 		}
 		

@@ -34,7 +34,7 @@ Configure PSR-4 autoloading in composer.json:
 ```
 ├── composer.json
 ├── config
-│   ├── config.yaml      # Application configuration
+│   ├── neuron.yaml      # Application configuration
 │   └── schedule.yaml    # Job schedule configuration
 ├── src
 │   └── Jobs
@@ -45,7 +45,7 @@ Configure PSR-4 autoloading in composer.json:
 
 ## Configuration
 
-### Application Configuration (config.yaml)
+### Application Configuration (neuron.yaml)
 
 ```yaml
 # Basic configuration

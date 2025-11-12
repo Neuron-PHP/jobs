@@ -15,7 +15,7 @@ function Boot( string $ConfigPath ) : ?Scheduler
 {
 	try
 	{
-		$Settings = new Yaml( "$ConfigPath/config.yaml" );
+		$Settings = new Yaml( "$ConfigPath/neuron.yaml" );
 	}
 	catch( Exception $e )
 	{
