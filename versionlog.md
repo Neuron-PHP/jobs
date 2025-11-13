@@ -1,3 +1,5 @@
+## 0.2.9
+
 ## 0.2.8 2025-11-12
 * Adds the jobs:run command to execute both the scheduler and worker in a single process.
 
