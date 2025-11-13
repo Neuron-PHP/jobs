@@ -46,10 +46,6 @@ class RunCommand extends Command
 		$this->addOption( 'worker-sleep', null, true, 'Worker sleep duration when queue is empty', '3' );
 		$this->addOption( 'worker-timeout', null, true, 'Worker job timeout in seconds', '60' );
 		$this->addOption( 'max-jobs', 'm', true, 'Max jobs to process before restarting worker', '0' );
-
-		// Combined options
-		$this->addOption( 'no-scheduler', null, false, 'Run only the worker (disable scheduler)' );
-		$this->addOption( 'no-worker', null, false, 'Run only the scheduler (disable worker)' );
 	}
 
 	/**
@@ -60,39 +56,24 @@ class RunCommand extends Command
 		// Register signal handlers for graceful shutdown
 		$this->registerSignalHandlers();
 
-		$runScheduler = !$this->input->hasOption( 'no-scheduler' );
-		$runWorker = !$this->input->hasOption( 'no-worker' );
-
-		if( !$runScheduler && !$runWorker )
-		{
-			$this->output->error( 'Cannot disable both scheduler and worker' );
-			return 1;
-		}
-
 		$this->output->success( 'Starting Neuron Job System...' );
 		$this->output->info( '' );
 
 		// Display configuration
-		if( $runScheduler )
-		{
-			$interval = $this->input->getOption( 'schedule-interval', '60' );
-			$this->output->info( "Scheduler:" );
-			$this->output->info( "  Polling interval: {$interval}s" );
-			$this->output->info( '' );
-		}
+		$interval = $this->input->getOption( 'schedule-interval', '60' );
+		$this->output->info( "Scheduler:" );
+		$this->output->info( "  Polling interval: {$interval}s" );
+		$this->output->info( '' );
 
-		if( $runWorker )
-		{
-			$queues = $this->input->getOption( 'queue', 'default' );
-			$sleep = $this->input->getOption( 'worker-sleep', '3' );
-			$timeout = $this->input->getOption( 'worker-timeout', '60' );
+		$queues = $this->input->getOption( 'queue', 'default' );
+		$sleep = $this->input->getOption( 'worker-sleep', '3' );
+		$timeout = $this->input->getOption( 'worker-timeout', '60' );
 
-			$this->output->info( "Queue Worker:" );
-			$this->output->info( "  Queue(s): {$queues}" );
-			$this->output->info( "  Sleep: {$sleep}s" );
-			$this->output->info( "  Timeout: {$timeout}s" );
-			$this->output->info( '' );
-		}
+		$this->output->info( "Queue Worker:" );
+		$this->output->info( "  Queue(s): {$queues}" );
+		$this->output->info( "  Sleep: {$sleep}s" );
+		$this->output->info( "  Timeout: {$timeout}s" );
+		$this->output->info( '' );
 
 		$this->output->success( 'Press Ctrl+C to stop all processes' );
 		$this->output->info( '' );
@@ -100,15 +81,8 @@ class RunCommand extends Command
 		// Start processes
 		try
 		{
-			if( $runScheduler )
-			{
-				$this->startScheduler();
-			}
-
-			if( $runWorker )
-			{
-				$this->startWorker();
-			}
+			$this->startScheduler();
+			$this->startWorker();
 
 			// Monitor processes
 			$this->monitorProcesses();
@@ -444,19 +418,17 @@ class RunCommand extends Command
 		$help .= "\n\n";
 		$help .= "This command runs both the scheduler and queue worker in a single process,\n";
 		$help .= "making it easy to run the entire job system with one command.\n\n";
+		$help .= "If you need to run only the scheduler or only the worker, use the\n";
+		$help .= "dedicated commands: jobs:schedule or jobs:work\n\n";
 		$help .= "Examples:\n";
 		$help .= "  # Run both scheduler and worker with defaults\n";
 		$help .= "  neuron jobs:run\n\n";
 		$help .= "  # Run with custom scheduler interval\n";
 		$help .= "  neuron jobs:run --schedule-interval=30\n\n";
-		$help .= "  # Run with specific queue\n";
-		$help .= "  neuron jobs:run --queue=emails,default\n\n";
-		$help .= "  # Run only the scheduler (disable worker)\n";
-		$help .= "  neuron jobs:run --no-worker\n\n";
-		$help .= "  # Run only the worker (disable scheduler)\n";
-		$help .= "  neuron jobs:run --no-scheduler\n\n";
+		$help .= "  # Run with specific queues\n";
+		$help .= "  neuron jobs:run --queue=emails,notifications\n\n";
 		$help .= "  # Customize worker behavior\n";
-		$help .= "  neuron jobs:run --worker-sleep=5 --worker-timeout=120\n";
+		$help .= "  neuron jobs:run --worker-sleep=5 --worker-timeout=120 --max-jobs=1000\n";
 
 		return $help;
 	}

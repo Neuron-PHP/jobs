@@ -73,8 +73,6 @@ class RunCommandTest extends TestCase
 		$this->assertArrayHasKey( 'queue', $options );
 		$this->assertArrayHasKey( 'worker-sleep', $options );
 		$this->assertArrayHasKey( 'worker-timeout', $options );
-		$this->assertArrayHasKey( 'no-scheduler', $options );
-		$this->assertArrayHasKey( 'no-worker', $options );
 		$this->assertArrayHasKey( 'config', $options );
 		$this->assertArrayHasKey( 'max-jobs', $options );
 	}
@@ -231,8 +229,8 @@ class RunCommandTest extends TestCase
 		$this->assertStringContainsString( 'jobs:run', $help );
 		$this->assertStringContainsString( '--schedule-interval', $help );
 		$this->assertStringContainsString( '--queue', $help );
-		$this->assertStringContainsString( '--no-scheduler', $help );
-		$this->assertStringContainsString( '--no-worker', $help );
+		$this->assertStringContainsString( 'jobs:schedule', $help );
+		$this->assertStringContainsString( 'jobs:work', $help );
 	}
 
 	/**
