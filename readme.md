@@ -5,11 +5,24 @@ A lightweight job scheduler and queue system for PHP 8.4+. Schedule recurring ta
 
 ## Features
 
+- **Combined Runner**: Single command to run scheduler and worker together
 - **Job Scheduling**: Schedule recurring jobs with cron expressions
 - **Queue System**: Background job processing with retry logic
 - **Multiple Drivers**: Database, file, or synchronous execution
 - **Failed Job Management**: Track, retry, and monitor failed jobs
 - **Helper Functions**: Simple API for dispatching jobs
+
+## Quick Start
+
+```bash
+# Install
+composer require neuron-php/jobs
+
+# Run the complete job system
+vendor/bin/neuron jobs:run
+```
+
+That's it! The `jobs:run` command handles both scheduled tasks and queued jobs.
 
 ## Installation
 
@@ -157,16 +170,56 @@ class CleanupLogsJob implements IJob
 }
 ```
 
-### Running the Scheduler
+## Running Jobs
+
+The job system can be run in three different modes depending on your needs:
+
+### 1. Combined Mode (Recommended)
+
+Run both scheduler and queue worker together with a single command:
+
+```bash
+vendor/bin/neuron jobs:run
+```
+
+This is the **easiest way** to run the complete job system. It manages both the scheduler and worker in one process.
+
+**Options:**
+- `--schedule-interval=30` - Scheduler polling interval in seconds (default: 60)
+- `--queue=emails,default` - Queue(s) to process (default: default)
+- `--worker-sleep=5` - Worker sleep when queue is empty (default: 3)
+- `--worker-timeout=120` - Job timeout in seconds (default: 60)
+- `--max-jobs=100` - Max jobs before restarting worker (default: unlimited)
+- `--no-scheduler` - Run only the worker
+- `--no-worker` - Run only the scheduler
+
+**Examples:**
+```bash
+# Run with defaults
+vendor/bin/neuron jobs:run
+
+# Custom configuration
+vendor/bin/neuron jobs:run --schedule-interval=30 --queue=emails,notifications
+
+# Only run scheduler
+vendor/bin/neuron jobs:run --no-worker
+
+# Only run worker
+vendor/bin/neuron jobs:run --no-scheduler
+```
+
+### 2. Scheduler Only
+
+Run just the scheduler for executing scheduled tasks:
 
 **Daemon Mode** (continuous polling):
 
 ```bash
 # Poll every 60 seconds (default)
-./vendor/bin/neuron jobs:schedule
+vendor/bin/neuron jobs:schedule
 
-# Custom polling interval (5 seconds)
-./vendor/bin/neuron jobs:schedule --interval 5
+# Custom polling interval
+vendor/bin/neuron jobs:schedule --interval=30
 ```
 
 **Cron Mode** (single poll per invocation):
@@ -174,8 +227,34 @@ class CleanupLogsJob implements IJob
 Add to your system crontab:
 
 ```cron
-* * * * * cd /path/to/app && ./vendor/bin/neuron jobs:schedule --poll
+* * * * * cd /path/to/app && vendor/bin/neuron jobs:schedule --poll
 ```
+
+### 3. Worker Only
+
+Run just the queue worker for processing background jobs:
+
+```bash
+# Process default queue
+vendor/bin/neuron jobs:work
+
+# Process specific queue
+vendor/bin/neuron jobs:work --queue=emails
+
+# Process multiple queues (priority order)
+vendor/bin/neuron jobs:work --queue=high,default,low
+
+# Custom options
+vendor/bin/neuron jobs:work --sleep=5 --timeout=120 --max-jobs=100
+```
+
+**Worker Options:**
+- `--queue, -Q`: Queue(s) to process (comma-separated), default: `default`
+- `--once`: Process one job then exit
+- `--stop-when-empty`: Stop when no jobs available
+- `--sleep, -s`: Seconds to sleep when queue empty, default: `3`
+- `--max-jobs, -m`: Maximum jobs before stopping, default: `0` (unlimited)
+- `--timeout, -t`: Job timeout in seconds, default: `60`
 
 ## Queue Processing
 
@@ -256,59 +335,16 @@ class SendEmailJob implements IJob
 }
 ```
 
-### Running Queue Workers
-
-**Daemon Mode** (continuous processing):
-
-```bash
-# Process default queue
-./vendor/bin/neuron jobs:work
-
-# Process specific queue
-./vendor/bin/neuron jobs:work --queue=emails
-
-# Process multiple queues (priority order)
-./vendor/bin/neuron jobs:work --queue=high,default,low
-
-# Custom sleep time when queue is empty
-./vendor/bin/neuron jobs:work --sleep=5
-
-# Stop after processing 100 jobs
-./vendor/bin/neuron jobs:work --max-jobs=100
-
-# Custom job timeout
-./vendor/bin/neuron jobs:work --timeout=120
-```
-
-**One-Time Processing:**
-
-```bash
-# Process one job then exit
-./vendor/bin/neuron jobs:work --once
-
-# Stop when queue is empty
-./vendor/bin/neuron jobs:work --stop-when-empty
-```
-
-**Worker Options:**
-
-- `--queue, -Q`: Queue(s) to process (comma-separated), default: `default`
-- `--once`: Process one job then exit
-- `--stop-when-empty`: Stop when no jobs available
-- `--sleep, -s`: Seconds to sleep when queue empty, default: `3`
-- `--max-jobs, -m`: Maximum jobs before stopping, default: `0` (unlimited)
-- `--timeout, -t`: Job timeout in seconds, default: `60`
-
 ## Queue Management
 
 ### Monitor Queue Status
 
 ```bash
 # Show statistics for default queue
-./vendor/bin/neuron jobs:stats
+vendor/bin/neuron jobs:stats
 
 # Show statistics for specific queues
-./vendor/bin/neuron jobs:stats --queue=emails,reports
+vendor/bin/neuron jobs:stats --queue=emails,reports
 ```
 
 ### Managing Failed Jobs
@@ -316,7 +352,7 @@ class SendEmailJob implements IJob
 #### View Failed Jobs
 
 ```bash
-./vendor/bin/neuron jobs:failed
+vendor/bin/neuron jobs:failed
 ```
 
 Shows:
@@ -330,30 +366,30 @@ Shows:
 
 ```bash
 # Retry specific job by ID
-./vendor/bin/neuron jobs:retry 123
+vendor/bin/neuron jobs:retry 123
 
 # Retry all failed jobs
-./vendor/bin/neuron jobs:retry --all
+vendor/bin/neuron jobs:retry --all
 ```
 
 #### Delete Failed Jobs
 
 ```bash
 # Delete specific failed job
-./vendor/bin/neuron jobs:forget 123
+vendor/bin/neuron jobs:forget 123
 ```
 
 ### Clear Queues
 
 ```bash
 # Clear default queue
-./vendor/bin/neuron jobs:flush
+vendor/bin/neuron jobs:flush
 
 # Clear specific queue
-./vendor/bin/neuron jobs:flush --queue=emails
+vendor/bin/neuron jobs:flush --queue=emails
 
 # Clear all failed jobs
-./vendor/bin/neuron jobs:flush --failed
+vendor/bin/neuron jobs:flush --failed
 ```
 
 ## Helper Functions
@@ -372,85 +408,6 @@ queueSize(?string $queue = null): int
 clearQueue(?string $queue = null): int
 ```
 
-## Production Deployment
-
-### Supervisor Configuration
-
-Create `/etc/supervisor/conf.d/queue-worker.conf`:
-
-```ini
-[program:queue-worker]
-process_name=%(program_name)s_%(process_num)02d
-command=/path/to/app/vendor/bin/neuron jobs:work --sleep=3 --max-jobs=1000
-autostart=true
-autorestart=true
-stopasgroup=true
-killasgroup=true
-user=www-data
-numprocs=4
-redirect_stderr=true
-stdout_logfile=/path/to/app/storage/logs/worker.log
-stopwaitsecs=3600
-```
-
-Start workers:
-
-```bash
-sudo supervisorctl reread
-sudo supervisorctl update
-sudo supervisorctl start queue-worker:*
-```
-
-### Systemd Service
-
-Create `/etc/systemd/system/queue-worker.service`:
-
-```ini
-[Unit]
-Description=Queue Worker
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/path/to/app
-ExecStart=/path/to/app/vendor/bin/neuron jobs:work
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
-
-```bash
-sudo systemctl enable queue-worker
-sudo systemctl start queue-worker
-```
-
-## Cron Expression Reference
-
-```
-┌───────────── minute (0 - 59)
-│ ┌───────────── hour (0 - 23)
-│ │ ┌───────────── day of month (1 - 31)
-│ │ │ ┌───────────── month (1 - 12)
-│ │ │ │ ┌───────────── day of week (0 - 6) (Sunday = 0)
-│ │ │ │ │
-* * * * *
-```
-
-**Examples:**
-
-- `* * * * *` - Every minute
-- `0 * * * *` - Every hour
-- `0 0 * * *` - Daily at midnight
-- `0 2 * * *` - Daily at 2:00 AM
-- `0 0 * * 0` - Weekly on Sunday
-- `0 0 1 * *` - Monthly on 1st
-- `*/15 * * * *` - Every 15 minutes
-- `0 9-17 * * 1-5` - Weekdays 9 AM - 5 PM
 
 ## More Information
 
