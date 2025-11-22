@@ -54,5 +54,11 @@ class Provider
 			'jobs:stats',
 			'Neuron\\Jobs\\Cli\\Commands\\StatsCommand'
 		);
+
+		// Register generator command
+		$registry->register(
+			'job:generate',
+			'Neuron\\Jobs\\Cli\\Commands\\Generate\\JobCommand'
+		);
 	}
 }
