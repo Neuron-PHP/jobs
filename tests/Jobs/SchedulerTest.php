@@ -6,6 +6,7 @@ use Neuron\Data\Setting\Source\Ini;
 use Neuron\Data\Setting\Source\Yaml;
 use Neuron\Jobs\IJob;
 use Neuron\Jobs\Scheduler;
+use Neuron\Patterns\Registry;
 use PHPUnit\Framework\TestCase;
 
 class TestJob implements IJob
@@ -19,10 +20,10 @@ class TestJob implements IJob
 		return 'TestJob';
 	}
 
-	public function run( array $Argv = [] ) : mixed
+	public function run( array $argv = [] ) : mixed
 	{
 		$this->Ran = true;
-		$this->Args = $Argv;
+		$this->Args = $argv;
 		return true;
 	}
 }
@@ -37,6 +38,8 @@ class SchedulerTest extends TestCase
 	protected function setUp() : void
 	{
 		parent::setUp();
+
+		Registry::getInstance()->set( 'Settings', null );
 
 		$Ini = new Yaml( './examples/config/neuron.yaml' );
 		$this->App = new Scheduler( "1.0.0", $Ini );
@@ -197,6 +200,8 @@ class SchedulerTest extends TestCase
 
 	public function testBootstrapScheduler()
 	{
+		Registry::getInstance()->set( 'Settings', null );
+
 		$App = Boot( getcwd().'/examples/config' );
 		Scheduler( $App, [ '--poll' ] );
 
@@ -207,6 +212,8 @@ class SchedulerTest extends TestCase
 
 	public function testInfinitePolling()
 	{
+		Registry::getInstance()->set( 'Settings', null );
+
 		$App = Boot( getcwd().'/examples/config' );
 		$App->setDebug( true );
 		Scheduler(
@@ -224,6 +231,8 @@ class SchedulerTest extends TestCase
 
 	public function testBootstrapSchedulerIntervalCommand()
 	{
+		Registry::getInstance()->set( 'Settings', null );
+
 		$App = Boot( getcwd().'/examples/config' );
 
 		Scheduler(
