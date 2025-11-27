@@ -306,6 +306,14 @@ class Scheduler extends CommandLineBase
 
 			if( $job[ 'cron' ]->isDue() )
 			{
+				// Emit scheduler job triggered event
+				\Neuron\Application\CrossCutting\Event::emit( new \Neuron\Jobs\Events\SchedulerJobTriggeredEvent(
+					$job['name'],
+					get_class( $job['job'] ),
+					(string)$job['cron'],
+					$job['queue'] ?? null
+				) );
+
 				// If queue is specified, dispatch to queue instead of running directly
 				if( isset( $job['queue'] ) && $job['queue'] !== null )
 				{
