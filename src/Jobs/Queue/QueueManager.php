@@ -170,17 +170,36 @@ class QueueManager
 
 			Log::info( "Processing job: {$queuedJob->getId()} ({$queuedJob->getJobClass()})" );
 
+			$startTime = microtime( true );
 			$job->run( $queuedJob->getArguments() );
+			$executionTime = microtime( true ) - $startTime;
 
 			$this->_driver->delete( $queuedJob );
 
 			Log::info( "Job completed: {$queuedJob->getId()}" );
+
+			// Emit job processed event
+			\Neuron\Application\CrossCutting\Event::emit( new \Neuron\Jobs\Events\JobProcessedEvent(
+				$queuedJob->getJobClass(),
+				$queuedJob->getArguments(),
+				$queue,
+				$executionTime
+			) );
 
 			return true;
 		}
 		catch( \Throwable $e )
 		{
 			Log::error( "Job failed: {$queuedJob->getId()} - {$e->getMessage()}" );
+
+			// Emit job failed event
+			\Neuron\Application\CrossCutting\Event::emit( new \Neuron\Jobs\Events\JobFailedEvent(
+				$queuedJob->getJobClass(),
+				$queuedJob->getArguments(),
+				$queue,
+				$e,
+				$queuedJob->getAttempts()
+			) );
 
 			$this->handleFailedJob( $queuedJob, $e );
 
@@ -210,6 +229,15 @@ class QueueManager
 		{
 			// Max attempts reached, mark as failed
 			Log::error( "Job {$job->getId()} failed permanently after {$job->getAttempts()} attempts" );
+
+			// Emit job max attempts reached event
+			\Neuron\Application\CrossCutting\Event::emit( new \Neuron\Jobs\Events\JobMaxAttemptsReachedEvent(
+				$job->getJobClass(),
+				$job->getArguments(),
+				$job->getQueue(),
+				$exception,
+				$this->_maxAttempts
+			) );
 
 			$this->_driver->failed( $job, $exception );
 		}

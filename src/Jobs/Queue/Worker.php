@@ -65,6 +65,14 @@ class Worker
 	{
 		$queues = is_array( $queues ) ? $queues : [ $queues ];
 
+		$workerId = uniqid( 'worker_', true );
+
+		// Emit worker started event
+		\Neuron\Application\CrossCutting\Event::emit( new \Neuron\Jobs\Events\WorkerStartedEvent(
+			$workerId,
+			$queues
+		) );
+
 		Log::info( "Worker started for queues: " . implode( ', ', $queues ) );
 
 		if( $once )
@@ -112,6 +120,12 @@ class Worker
 		}
 
 		Log::info( "Worker stopped. Total jobs processed: {$this->_jobsProcessed}" );
+
+		// Emit worker stopped event
+		\Neuron\Application\CrossCutting\Event::emit( new \Neuron\Jobs\Events\WorkerStoppedEvent(
+			$workerId ?? uniqid( 'worker_', true ),
+			$this->_jobsProcessed
+		) );
 	}
 
 	/**
