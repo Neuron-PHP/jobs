@@ -2,8 +2,8 @@
 
 namespace Jobs;
 
-use Neuron\Data\Setting\Source\Ini;
-use Neuron\Data\Setting\Source\Yaml;
+use Neuron\Data\Settings\Source\Ini;
+use Neuron\Data\Settings\Source\Yaml;
 use Neuron\Jobs\IJob;
 use Neuron\Jobs\Scheduler;
 use Neuron\Patterns\Registry;

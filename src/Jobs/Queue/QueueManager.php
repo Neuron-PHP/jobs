@@ -3,7 +3,7 @@
 namespace Neuron\Jobs\Queue;
 
 use Neuron\Jobs\IJob;
-use Neuron\Data\Setting\Source\ISettingSource;
+use Neuron\Data\Settings\Source\ISettingSource;
 use Neuron\Log\Log;
 
 /**
