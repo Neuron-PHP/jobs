@@ -1,7 +1,7 @@
 <?php
 
-use Neuron\Data\Object\Version;
-use Neuron\Data\Setting\Source\Yaml;
+use Neuron\Data\Objects\Version;
+use Neuron\Data\Settings\Source\Yaml;
 use Neuron\Jobs\Scheduler;
 
 /**
@@ -11,7 +11,7 @@ use Neuron\Jobs\Scheduler;
  * @return ?Scheduler
  * @throws Exception
  */
-function Boot( string $ConfigPath ) : ?Scheduler
+function boot( string $ConfigPath ) : ?Scheduler
 {
 	try
 	{
@@ -22,10 +22,9 @@ function Boot( string $ConfigPath ) : ?Scheduler
 		$Settings = null;
 	}
 
-	$Version = new Version();
-	$Version->loadFromFile( __DIR__."/../.version.json" );
+	$version = \Neuron\Data\Factories\Version::fromFile( __DIR__."/../.version.json" );
 
-	return new Scheduler( $Version->getAsString(), $Settings );
+	return new Scheduler( $version->getAsString(), $Settings );
 }
 
 /**
@@ -35,7 +34,7 @@ function Boot( string $ConfigPath ) : ?Scheduler
  * @param array $argv
  * @throws Exception
  */
-function Scheduler( Scheduler $App, array $argv ) : void
+function scheduler( Scheduler $App, array $argv ) : void
 {
 	$App->run( $argv );
 }

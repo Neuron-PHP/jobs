@@ -3,12 +3,9 @@
 namespace Neuron\Jobs\Cli\Commands;
 
 use Neuron\Cli\Commands\Command;
-use Neuron\Cli\Console\Input;
-use Neuron\Cli\Console\Output;
 use Neuron\Jobs\Scheduler;
-use Neuron\Data\Setting\Source\Yaml;
-use Neuron\Data\Object\Version;
-use Neuron\Log\Log;
+use Neuron\Data\Settings\Source\Yaml;
+use Neuron\Data\Objects\Version;
 
 /**
  * CLI command for running the job scheduler.
@@ -171,19 +168,18 @@ class ScheduleCommand extends Command
 		}
 		
 		// Load version information
-		$version = new Version();
 		$versionFile = dirname( __DIR__, 4 ) . '/.version.json';
-		
-		if( file_exists( $versionFile ) )
+
+		try
 		{
-			$version->loadFromFile( $versionFile );
+			$version = \Neuron\Data\Factories\Version::fromFile( $versionFile );
 		}
-		else
+		catch( \Exception $e )
 		{
-			// Use a default version if file not found
+			$version = new Version();
 			$version->setMajor( 0 )->setMinor( 1 )->setPatch( 0 );
 		}
-		
+
 		// Create scheduler instance
 		$scheduler = new Scheduler( $version->getAsString(), $settings );
 		
