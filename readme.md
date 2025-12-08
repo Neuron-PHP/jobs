@@ -1,5 +1,5 @@
 [![CI](https://github.com/Neuron-PHP/jobs/actions/workflows/ci.yml/badge.svg)](https://github.com/Neuron-PHP/jobs/actions)
-[![codecov](https://codecov.io/gh/Neuron-PHP/jobs/graph/badge.svg)](https://codecov.io/gh/Neuron-PHP/jobs)
+[![codecov](https://codecov.io/gh/Neuron-PHP/jobs/branch/develop/graph/badge.svg)](https://codecov.io/gh/Neuron-PHP/jobs)
 # Neuron-PHP Job Scheduler & Queue
 
 A lightweight job scheduler and queue system for PHP 8.4+. Schedule recurring tasks with cron expressions and process background jobs with a reliable queue system.
