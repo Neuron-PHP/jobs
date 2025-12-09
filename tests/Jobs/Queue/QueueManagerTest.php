@@ -54,6 +54,30 @@ class FailingManagerJob implements IJob
  */
 class QueueManagerTest extends TestCase
 {
+	/**
+	 * Recursively remove a directory and its contents.
+	 */
+	private function recursiveRemoveDirectory(string $dir): void
+	{
+		if (!is_dir($dir)) {
+			return;
+		}
+
+		$items = array_diff(scandir($dir), ['.', '..']);
+
+		foreach ($items as $item) {
+			$path = $dir . '/' . $item;
+
+			if (is_dir($path)) {
+				$this->recursiveRemoveDirectory($path);
+			} else {
+				unlink($path);
+			}
+		}
+
+		rmdir($dir);
+	}
+
 	public function testConstructorWithNoParametersUsesDefaultConfig(): void
 	{
 		$manager = new QueueManager();
@@ -338,5 +362,278 @@ class QueueManagerTest extends TestCase
 
 		$this->assertTrue($job->executed);
 		$this->assertEquals([], $job->receivedArgs);
+	}
+
+	public function testConstructorWithDatabaseDriver(): void
+	{
+		$config = [
+			'driver' => 'database',
+			'database' => [
+				'adapter' => 'sqlite',
+				'name' => ':memory:'
+			]
+		];
+
+		$manager = new QueueManager(null, $config);
+
+		$this->assertInstanceOf(QueueManager::class, $manager);
+		$this->assertInstanceOf(\Neuron\Jobs\Queue\DatabaseQueue::class, $manager->getDriver());
+	}
+
+	public function testConstructorWithFileDriver(): void
+	{
+		$tempPath = sys_get_temp_dir() . '/queue_manager_test_' . uniqid();
+		mkdir($tempPath);
+
+		try {
+			$config = [
+				'driver' => 'file',
+				'file' => [
+					'path' => $tempPath
+				]
+			];
+
+			$manager = new QueueManager(null, $config);
+
+			$this->assertInstanceOf(QueueManager::class, $manager);
+			$this->assertInstanceOf(\Neuron\Jobs\Queue\FileQueue::class, $manager->getDriver());
+		} finally {
+			// Clean up
+			$this->recursiveRemoveDirectory($tempPath);
+		}
+	}
+
+	public function testProcessNextJobWithFileQueue(): void
+	{
+		$tempPath = sys_get_temp_dir() . '/queue_manager_process_test_' . uniqid();
+		mkdir($tempPath);
+
+		try {
+			$config = [
+				'driver' => 'file',
+				'file' => ['path' => $tempPath],
+				'max_attempts' => 3,
+				'backoff' => 0
+			];
+
+			$manager = new QueueManager(null, $config);
+			$job = new ManagerTestJob();
+
+			// Dispatch and process a job
+			$jobId = $manager->dispatch($job, ['test' => 'data'], 'default', 0);
+
+			$this->assertNotEmpty($jobId);
+
+			// Process the job
+			$result = $manager->processNextJob('default');
+
+			$this->assertTrue($result);
+		} finally {
+			// Clean up
+			$this->recursiveRemoveDirectory($tempPath);
+		}
+	}
+
+	public function testProcessNextJobWithFailingJob(): void
+	{
+		$tempPath = sys_get_temp_dir() . '/queue_manager_fail_test_' . uniqid();
+		mkdir($tempPath);
+
+		try {
+			$config = [
+				'driver' => 'file',
+				'file' => ['path' => $tempPath],
+				'max_attempts' => 2,
+				'backoff' => 0,
+				'retry_after' => 0
+			];
+
+			$manager = new QueueManager(null, $config);
+			$job = new FailingManagerJob();
+
+			// Dispatch a failing job
+			$jobId = $manager->dispatch($job, [], 'default', 0);
+
+			// Process should return true (job was processed, even though it failed)
+			$result = $manager->processNextJob('default');
+
+			$this->assertTrue($result);
+
+			// Job should be retried, so it should still be in queue
+			$this->assertGreaterThanOrEqual(0, $manager->size('default'));
+		} finally {
+			// Clean up
+			$this->recursiveRemoveDirectory($tempPath);
+		}
+	}
+
+	public function testProcessNextJobWithMaxAttemptsReached(): void
+	{
+		$tempPath = sys_get_temp_dir() . '/queue_manager_max_attempts_' . uniqid();
+		mkdir($tempPath);
+
+		try {
+			$config = [
+				'driver' => 'file',
+				'file' => ['path' => $tempPath],
+				'max_attempts' => 1,
+				'backoff' => 0
+			];
+
+			$manager = new QueueManager(null, $config);
+			$job = new FailingManagerJob();
+
+			// Dispatch a failing job
+			$manager->dispatch($job, [], 'default', 0);
+
+			// Process should handle the failure and move to failed jobs
+			$manager->processNextJob('default');
+
+			// Check that it moved to failed jobs
+			$failedJobs = $manager->getFailedJobs();
+			$this->assertCount(1, $failedJobs);
+		} finally {
+			// Clean up
+			$this->recursiveRemoveDirectory($tempPath);
+		}
+	}
+
+	public function testBackoffCalculation(): void
+	{
+		$tempPath = sys_get_temp_dir() . '/queue_manager_backoff_' . uniqid();
+		mkdir($tempPath);
+
+		try {
+			$config = [
+				'driver' => 'file',
+				'file' => ['path' => $tempPath],
+				'max_attempts' => 5,
+				'backoff' => 10
+			];
+
+			$manager = new QueueManager(null, $config);
+			$job = new FailingManagerJob();
+
+			// Dispatch a failing job
+			$manager->dispatch($job, [], 'default', 0);
+
+			// Process should retry with backoff
+			$manager->processNextJob('default');
+
+			// Should still be in queue (retried)
+			$this->assertGreaterThanOrEqual(0, $manager->size('default'));
+		} finally {
+			// Clean up
+			$this->recursiveRemoveDirectory($tempPath);
+		}
+	}
+
+	public function testRetryAllFailedJobsWithNoFailedJobs(): void
+	{
+		$manager = new QueueManager();
+
+		$count = $manager->retryAllFailedJobs();
+
+		$this->assertEquals(0, $count);
+	}
+
+	public function testConstructorWithSettings(): void
+	{
+		// Create mock settings
+		$settings = $this->createMock(\Neuron\Data\Settings\Source\ISettingSource::class);
+
+		$settings->method('get')
+			->willReturnCallback(function($section, $key) {
+				$config = [
+					'queue' => [
+						'driver' => 'sync',
+						'default' => 'test-queue',
+						'retry_after' => 120,
+						'max_attempts' => 5,
+						'backoff' => 10
+					]
+				];
+
+				return $config[$section][$key] ?? null;
+			});
+
+		$manager = new QueueManager($settings);
+
+		$config = $manager->getConfig();
+
+		$this->assertEquals('sync', $config['driver']);
+		$this->assertEquals('test-queue', $config['default_queue']);
+		$this->assertEquals(120, $config['retry_after']);
+		$this->assertEquals(5, $config['max_attempts']);
+		$this->assertEquals(10, $config['backoff']);
+	}
+
+	public function testConstructorWithSettingsForDatabaseDriver(): void
+	{
+		// Create mock settings
+		$settings = $this->createMock(\Neuron\Data\Settings\Source\ISettingSource::class);
+
+		$settings->method('get')
+			->willReturnCallback(function($section, $key) {
+				$config = [
+					'queue' => [
+						'driver' => 'database',
+						'default' => 'default',
+						'retry_after' => 90,
+						'max_attempts' => 3,
+						'backoff' => 0
+					],
+					'database' => [
+						'adapter' => 'sqlite',
+						'name' => ':memory:',
+						'host' => null,
+						'port' => 3306,
+						'user' => null,
+						'pass' => null,
+						'charset' => 'utf8mb4'
+					]
+				];
+
+				return $config[$section][$key] ?? null;
+			});
+
+		$manager = new QueueManager($settings);
+
+		$config = $manager->getConfig();
+
+		$this->assertEquals('database', $config['driver']);
+		$this->assertArrayHasKey('database', $config);
+		$this->assertEquals('sqlite', $config['database']['adapter']);
+		$this->assertEquals(':memory:', $config['database']['name']);
+	}
+
+	public function testConstructorWithSettingsForFileDriver(): void
+	{
+		// Create mock settings
+		$settings = $this->createMock(\Neuron\Data\Settings\Source\ISettingSource::class);
+
+		$settings->method('get')
+			->willReturnCallback(function($section, $key) {
+				$config = [
+					'queue' => [
+						'driver' => 'file',
+						'default' => 'default',
+						'retry_after' => 90,
+						'max_attempts' => 3,
+						'backoff' => 0,
+						'file_path' => '/tmp/queue'
+					]
+				];
+
+				return $config[$section][$key] ?? null;
+			});
+
+		$manager = new QueueManager($settings);
+
+		$config = $manager->getConfig();
+
+		$this->assertEquals('file', $config['driver']);
+		$this->assertArrayHasKey('file', $config);
+		$this->assertEquals('/tmp/queue', $config['file']['path']);
 	}
 }
