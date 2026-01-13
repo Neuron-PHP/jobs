@@ -2,6 +2,7 @@
 
 namespace Jobs;
 
+use Neuron\Core\Registry\RegistryKeys;
 use Neuron\Data\Settings\Source\Ini;
 use Neuron\Data\Settings\Source\Yaml;
 use Neuron\Jobs\IJob;
@@ -39,7 +40,7 @@ class SchedulerTest extends TestCase
 	{
 		parent::setUp();
 
-		Registry::getInstance()->set( 'Settings', null );
+		Registry::getInstance()->set( RegistryKeys::SETTINGS, null );
 
 		$Ini = new Yaml( './examples/config/neuron.yaml' );
 		$this->App = new Scheduler( "1.0.0", $Ini );
@@ -200,7 +201,7 @@ class SchedulerTest extends TestCase
 
 	public function testBootstrapScheduler()
 	{
-		Registry::getInstance()->set( 'Settings', null );
+		Registry::getInstance()->set( RegistryKeys::SETTINGS, null );
 
 		$App = Boot( getcwd().'/examples/config' );
 		Scheduler( $App, [ '--poll' ] );
@@ -212,7 +213,7 @@ class SchedulerTest extends TestCase
 
 	public function testInfinitePolling()
 	{
-		Registry::getInstance()->set( 'Settings', null );
+		Registry::getInstance()->set( RegistryKeys::SETTINGS, null );
 
 		$App = Boot( getcwd().'/examples/config' );
 		$App->setDebug( true );
@@ -231,7 +232,7 @@ class SchedulerTest extends TestCase
 
 	public function testBootstrapSchedulerIntervalCommand()
 	{
-		Registry::getInstance()->set( 'Settings', null );
+		Registry::getInstance()->set( RegistryKeys::SETTINGS, null );
 
 		$App = Boot( getcwd().'/examples/config' );
 
