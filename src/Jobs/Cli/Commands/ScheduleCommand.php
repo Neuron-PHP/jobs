@@ -3,6 +3,7 @@
 namespace Neuron\Jobs\Cli\Commands;
 
 use Neuron\Cli\Commands\Command;
+use Neuron\Core\Registry\RegistryKeys;
 use Neuron\Jobs\Scheduler;
 use Neuron\Data\Settings\Source\Yaml;
 use Neuron\Data\Objects\Version;
@@ -108,7 +109,7 @@ class ScheduleCommand extends Command
 		try
 		{
 			// Store current output for scheduler to use
-			\Neuron\Patterns\Registry::getInstance()->set( 'cli.output', $this->output );
+			\Neuron\Patterns\Registry::getInstance()->set( RegistryKeys::CLI_OUTPUT_LEGACY, $this->output );
 			
 			// Build argv array for scheduler
 			$argv = ['schedule'];
