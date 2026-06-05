@@ -118,7 +118,7 @@ class QueuedJob
 			$createdAt
 		);
 
-		$job->_RawPayload = $payload;
+		$job->_rawPayload = $payload;
 
 		return $job;
 	}
