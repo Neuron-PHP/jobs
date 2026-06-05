@@ -28,11 +28,9 @@ class RunCommandTest extends TestCase
 		$reflection = new \ReflectionClass( $this->_command );
 
 		$inputProperty = $reflection->getProperty( 'input' );
-		$inputProperty->setAccessible( true );
 		$inputProperty->setValue( $this->_command, $this->_input );
 
 		$outputProperty = $reflection->getProperty( 'output' );
-		$outputProperty->setAccessible( true );
 		$outputProperty->setValue( $this->_command, $this->_output );
 	}
 
@@ -65,7 +63,6 @@ class RunCommandTest extends TestCase
 
 		$reflection = new \ReflectionClass( $this->_command );
 		$optionsProperty = $reflection->getProperty( 'options' );
-		$optionsProperty->setAccessible( true );
 		$options = $optionsProperty->getValue( $this->_command );
 
 		// Check that key options exist
@@ -86,7 +83,6 @@ class RunCommandTest extends TestCase
 
 		$reflection = new \ReflectionClass( $this->_command );
 		$method = $reflection->getMethod( 'buildSchedulerCommand' );
-		$method->setAccessible( true );
 
 		$cmd = $method->invoke( $this->_command );
 
@@ -105,7 +101,6 @@ class RunCommandTest extends TestCase
 
 		$reflection = new \ReflectionClass( $this->_command );
 		$method = $reflection->getMethod( 'buildSchedulerCommand' );
-		$method->setAccessible( true );
 
 		$cmd = $method->invoke( $this->_command );
 
@@ -122,7 +117,6 @@ class RunCommandTest extends TestCase
 
 		$reflection = new \ReflectionClass( $this->_command );
 		$method = $reflection->getMethod( 'buildSchedulerCommand' );
-		$method->setAccessible( true );
 
 		$cmd = $method->invoke( $this->_command );
 
@@ -139,7 +133,6 @@ class RunCommandTest extends TestCase
 
 		$reflection = new \ReflectionClass( $this->_command );
 		$method = $reflection->getMethod( 'buildWorkerCommand' );
-		$method->setAccessible( true );
 
 		$cmd = $method->invoke( $this->_command );
 
@@ -158,7 +151,6 @@ class RunCommandTest extends TestCase
 
 		$reflection = new \ReflectionClass( $this->_command );
 		$method = $reflection->getMethod( 'buildWorkerCommand' );
-		$method->setAccessible( true );
 
 		$cmd = $method->invoke( $this->_command );
 
@@ -175,7 +167,6 @@ class RunCommandTest extends TestCase
 
 		$reflection = new \ReflectionClass( $this->_command );
 		$method = $reflection->getMethod( 'buildWorkerCommand' );
-		$method->setAccessible( true );
 
 		$cmd = $method->invoke( $this->_command );
 
@@ -192,7 +183,6 @@ class RunCommandTest extends TestCase
 
 		$reflection = new \ReflectionClass( $this->_command );
 		$method = $reflection->getMethod( 'buildWorkerCommand' );
-		$method->setAccessible( true );
 
 		$cmd = $method->invoke( $this->_command );
 
@@ -209,7 +199,6 @@ class RunCommandTest extends TestCase
 
 		$reflection = new \ReflectionClass( $this->_command );
 		$method = $reflection->getMethod( 'buildWorkerCommand' );
-		$method->setAccessible( true );
 
 		$cmd = $method->invoke( $this->_command );
 

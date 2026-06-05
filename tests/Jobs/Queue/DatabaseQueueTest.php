@@ -55,7 +55,6 @@ class DatabaseQueueTest extends TestCase
 		// Use reflection to inject our PDO instance
 		$reflection = new \ReflectionClass($this->queue);
 		$property = $reflection->getProperty('_connection');
-		$property->setAccessible(true);
 		$property->setValue($this->queue, $this->pdo);
 	}
 

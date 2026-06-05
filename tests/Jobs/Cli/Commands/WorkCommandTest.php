@@ -48,11 +48,9 @@ class WorkCommandTest extends TestCase
 		$reflection = new \ReflectionClass($command);
 
 		$inputProperty = $reflection->getProperty('input');
-		$inputProperty->setAccessible(true);
 		$inputProperty->setValue($command, $input);
 
 		$outputProperty = $reflection->getProperty('output');
-		$outputProperty->setAccessible(true);
 		$outputProperty->setValue($command, $output);
 	}
 
@@ -78,7 +76,6 @@ class WorkCommandTest extends TestCase
 
 		$reflection = new \ReflectionClass($command);
 		$optionsProperty = $reflection->getProperty('options');
-		$optionsProperty->setAccessible(true);
 		$options = $optionsProperty->getValue($command);
 
 		$this->assertArrayHasKey('queue', $options);
