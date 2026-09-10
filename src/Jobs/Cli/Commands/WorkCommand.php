@@ -35,7 +35,7 @@ class WorkCommand extends Command
 	 */
 	public function configure(): void
 	{
-		$this->addOption( 'queue', 'Q', true, 'Queue(s) to process (comma-separated)', 'default' );
+		$this->addOption( 'queue', 'Q', true, 'Queue(s) to process (comma-separated)', 'default,emails' );
 		$this->addOption( 'once', null, false, 'Process one job then exit' );
 		$this->addOption( 'stop-when-empty', null, false, 'Stop when queue is empty' );
 		$this->addOption( 'sleep', 's', true, 'Seconds to sleep when queue is empty', '3' );
@@ -60,7 +60,7 @@ class WorkCommand extends Command
 		}
 
 		// Get options
-		$queueNames = $this->input->getOption( 'queue', 'default' );
+		$queueNames = $this->input->getOption( 'queue', 'default,emails' );
 		$queues = array_map( 'trim', explode( ',', $queueNames ) );
 		$once = $this->input->hasOption( 'once' );
 		$stopWhenEmpty = $this->input->hasOption( 'stop-when-empty' );

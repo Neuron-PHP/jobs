@@ -139,6 +139,7 @@ class RunCommandTest extends TestCase
 		$this->assertIsString( $cmd );
 		$this->assertStringContainsString( 'jobs:work', $cmd );
 		$this->assertStringContainsString( PHP_BINARY, $cmd );
+		$this->assertStringContainsString( 'default,emails', $cmd );
 	}
 
 	/**
@@ -154,7 +155,7 @@ class RunCommandTest extends TestCase
 
 		$cmd = $method->invoke( $this->_command );
 
-		$this->assertStringContainsString( '--queue=emails,notifications', $cmd );
+		$this->assertStringContainsString( 'emails,notifications', $cmd );
 	}
 
 	/**

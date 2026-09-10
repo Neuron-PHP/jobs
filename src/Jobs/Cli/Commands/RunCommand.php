@@ -42,7 +42,7 @@ class RunCommand extends Command
 		$this->addOption( 'config-file', 'f', true, 'Schedule configuration filename' );
 
 		// Worker options
-		$this->addOption( 'queue', 'Q', true, 'Queue(s) to process (comma-separated)', 'default' );
+		$this->addOption( 'queue', 'Q', true, 'Queue(s) to process (comma-separated)', 'default,emails' );
 		$this->addOption( 'worker-sleep', null, true, 'Worker sleep duration when queue is empty', '3' );
 		$this->addOption( 'worker-timeout', null, true, 'Worker job timeout in seconds', '60' );
 		$this->addOption( 'max-jobs', 'm', true, 'Max jobs to process before restarting worker', '0' );
@@ -226,11 +226,8 @@ class RunCommand extends Command
 
 		$cmd = "$php $neuron jobs:work";
 
-		if( $this->input->hasOption( 'queue' ) )
-		{
-			$queue = $this->input->getOption( 'queue' );
-			$cmd .= " --queue=$queue";
-		}
+		$queue = $this->input->getOption( 'queue', 'default,emails' );
+		$cmd .= ' --queue=' . escapeshellarg( $queue );
 
 		if( $this->input->hasOption( 'worker-sleep' ) )
 		{
