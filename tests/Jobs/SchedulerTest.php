@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
 class TestJob implements IJob
 {
 	public bool $Ran = false;
+	public int $Runs = 0;
 	public bool $Crash = false;
 	public array $Args = [];
 
@@ -24,6 +25,7 @@ class TestJob implements IJob
 	public function run( array $argv = [] ) : mixed
 	{
 		$this->Ran = true;
+		$this->Runs++;
 		$this->Args = $argv;
 		return true;
 	}
@@ -248,5 +250,95 @@ class SchedulerTest extends TestCase
 		$this->assertTrue(
 			$App->getJobs()[0]['job']->Ran
 		);
+	}
+
+	/**
+	 * A poll at the given time, in the default timezone.
+	 */
+	private function pollAt( string $time ): int
+	{
+		return $this->App->poll( new \DateTimeImmutable( $time ) );
+	}
+
+	/**
+	 * Jobs run one after another. Checked against the clock, a job behind a slow
+	 * one was checked after its minute had passed, and skipped. Every job is now
+	 * checked against the poll's own time, whatever the clock says.
+	 */
+	public function testEveryJobIsCheckedAgainstThePollsTime()
+	{
+		$Job = new TestJob();
+
+		$this->App->addJob( 'TestJob', '15 10 * * *', $Job );
+
+		$this->pollAt( '2026-10-19 10:15:00' );
+
+		$this->assertSame( 1, $Job->Runs );
+	}
+
+	/**
+	 * A poll that runs long steps over the next one's minute. That time still
+	 * runs, late, on the next poll.
+	 */
+	public function testAScheduledTimeAPollSteppedOverRunsLate()
+	{
+		$Job = new TestJob();
+
+		$this->App->addJob( 'TestJob', '15 * * * *', $Job );
+
+		$this->pollAt( '2026-10-19 10:14:00' );
+		$this->assertSame( 0, $Job->Runs );
+
+		$this->pollAt( '2026-10-19 10:16:30' );
+		$this->assertSame( 1, $Job->Runs, 'run late, not skipped' );
+
+		$this->pollAt( '2026-10-19 10:17:00' );
+		$this->assertSame( 1, $Job->Runs, 'and only once' );
+	}
+
+	/**
+	 * However many times were missed, the job runs once.
+	 */
+	public function testManyMissedTimesRunOnce()
+	{
+		$Job = new TestJob();
+
+		$this->App->addJob( 'TestJob', '*/15 * * * *', $Job );
+
+		$this->pollAt( '2026-10-19 10:01:00' );
+		$this->assertSame( 1, $this->pollAt( '2026-10-19 11:02:00' ) );
+		$this->assertSame( 1, $Job->Runs );
+	}
+
+	/**
+	 * The first poll has no previous one to catch up from, so a restart does not
+	 * replay the schedule.
+	 */
+	public function testTheFirstPollDoesNotCatchUp()
+	{
+		$Job = new TestJob();
+
+		$this->App->addJob( 'TestJob', '15 * * * *', $Job );
+
+		$this->pollAt( '2026-10-19 10:16:00' );
+
+		$this->assertSame( 0, $Job->Runs );
+	}
+
+	/**
+	 * Two polls in the same minute run a job once.
+	 */
+	public function testAJobRunsOncePerScheduledMinute()
+	{
+		$Job = new TestJob();
+
+		$this->App->addJob( 'TestJob', '* * * * *', $Job );
+
+		$this->pollAt( '2026-10-19 10:15:01' );
+		$this->pollAt( '2026-10-19 10:15:40' );
+		$this->assertSame( 1, $Job->Runs );
+
+		$this->pollAt( '2026-10-19 10:16:02' );
+		$this->assertSame( 2, $Job->Runs );
 	}
 }
