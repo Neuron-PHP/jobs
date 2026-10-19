@@ -278,7 +278,13 @@ class Scheduler extends CommandLineBase
 		{
 			$this->poll();
 
-			sleep( $this->_interval );
+			// Wake on the interval boundary - the top of the minute, at the default -
+			// rather than a fixed interval after the work, which drifts by however
+			// long the poll took. Polls that drift step over minutes entirely.
+			if( $this->_interval > 0 )
+			{
+				sleep( $this->_interval - ( time() % $this->_interval ) );
+			}
 
 			if( $this->_debug )
 			{
@@ -291,20 +297,31 @@ class Scheduler extends CommandLineBase
 	 * Single job poll.
 	 * Checks all scheduled jobs and either runs them directly or dispatches to queue.
 	 *
+	 * Every job is checked against the time the poll started, not the time it is
+	 * reached: jobs run one after another, and checked against the clock, a job
+	 * behind a slow one was checked after its minute had passed and silently
+	 * skipped.
+	 *
+	 * @param \DateTimeInterface|null $now The poll's time; null for now.
 	 * @return int Number of jobs triggered (run or dispatched).
 	 */
 
-	public function poll(): int
+	public function poll( ?\DateTimeInterface $now = null ): int
 	{
 		Log::debug( "Polling.." );
 
+		$now   = \DateTimeImmutable::createFromInterface( $now ?? new \DateTimeImmutable() );
 		$count = 0;
 
-		foreach( $this->_jobs as $job )
+		foreach( $this->_jobs as $index => $job )
 		{
 			Log::debug( "Checking job: {$job['name']}" );
 
-			if( $job[ 'cron' ]->isDue() )
+			$due = $this->isJobDue( $job, $now );
+
+			$this->_jobs[ $index ][ 'last_poll' ] = $now;
+
+			if( $due )
 			{
 				// Emit scheduler job triggered event
 				\Neuron\Application\CrossCutting\Event::emit( new \Neuron\Jobs\Events\SchedulerJobTriggeredEvent(
@@ -338,6 +355,47 @@ class Scheduler extends CommandLineBase
 		}
 
 		return $count;
+	}
+
+	/**
+	 * Whether a job is due at the given poll.
+	 *
+	 * Due when one of its scheduled times falls after the previous poll and at or
+	 * before this one, so a time a long poll stepped over still runs - late, and
+	 * once however many were missed - rather than never. The first poll has no
+	 * previous one and runs only what is due at that minute, so a restart does
+	 * not replay the schedule.
+	 *
+	 * @param array $job
+	 * @param \DateTimeImmutable $now
+	 * @return bool
+	 */
+
+	private function isJobDue( array $job, \DateTimeImmutable $now ): bool
+	{
+		/** @var CronExpression $cron */
+		$cron     = $job[ 'cron' ];
+		$lastPoll = $job[ 'last_poll' ] ?? null;
+
+		if( $lastPoll === null )
+		{
+			return $cron->isDue( $now );
+		}
+
+		$scheduled = \DateTimeImmutable::createFromMutable( $cron->getPreviousRunDate( $now, 0, true ) );
+
+		// Compared by minute, the resolution of a cron expression.
+		if( $scheduled->format( 'YmdHi' ) <= $lastPoll->format( 'YmdHi' ) )
+		{
+			return false;
+		}
+
+		if( $scheduled->format( 'YmdHi' ) < $now->format( 'YmdHi' ) )
+		{
+			Log::warning( "Running job late: {$job['name']} was due at {$scheduled->format( 'Y-m-d H:i' )}." );
+		}
+
+		return true;
 	}
 
 	/**
