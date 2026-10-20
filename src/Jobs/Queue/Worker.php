@@ -122,8 +122,8 @@ class Worker
 					break;
 				}
 
-				// Sleep before checking again
-				Log::debug( "Queue is empty, sleeping for {$this->_sleep} seconds" );
+				// Sleep before checking again. Not logged: an idle worker would
+				// otherwise write a line every few seconds.
 				sleep( $this->_sleep );
 			}
 		}
