@@ -1,4 +1,4 @@
-## 0.2.19
+## 0.2.19 2026-10-20
 
 * An idle worker no longer logs "Queue is empty, sleeping for N seconds" on
   every poll.
