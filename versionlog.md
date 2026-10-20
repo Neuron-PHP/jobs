@@ -1,5 +1,8 @@
 ## 0.2.19
 
+* An idle worker no longer logs "Queue is empty, sleeping for N seconds" on
+  every poll.
+
 ## 0.2.18 2026-10-20
 
 * Workers, the scheduler and `jobs:run` now treat `SIGWINCH` as a stop
