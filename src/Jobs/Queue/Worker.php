@@ -2,6 +2,7 @@
 
 namespace Neuron\Jobs\Queue;
 
+use Neuron\Jobs\Process\StopSignals;
 use Neuron\Log\Log;
 
 /**
@@ -42,20 +43,11 @@ class Worker
 	 */
 	private function registerSignalHandlers(): void
 	{
-		if( !function_exists( 'pcntl_signal' ) )
-		{
-			return; // PCNTL extension not available
-		}
-
-		pcntl_async_signals( true );
-
-		pcntl_signal( SIGTERM, function() {
+		// SIGTERM, SIGINT and, when no terminal is attached, SIGWINCH - the
+		// stop signal of the php:*-apache Docker image. See StopSignals.
+		StopSignals::register( function() {
 			$this->stop();
-		});
-
-		pcntl_signal( SIGINT, function() {
-			$this->stop();
-		});
+		} );
 	}
 
 	/**

@@ -17,7 +17,7 @@ use Neuron\Log\Log;
  *
  * @package Neuron\Jobs\Queue
  */
-class ArrayQueue implements IQueue, IQueueStats
+class ArrayQueue implements IQueue, IQueueStats, IUniqueQueue
 {
 	/** @var array<string, array<string, QueuedJob>> queue name => id => job */
 	private array $_jobs = [];
@@ -51,6 +51,22 @@ class ArrayQueue implements IQueue, IQueueStats
 		Log::debug( "Job pushed to array queue: {$queuedJob->getId()} ({$queuedJob->getJobClass()})" );
 
 		return $queuedJob->getId();
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function findPending( string $jobClass, array $args, string $queue ): ?string
+	{
+		foreach( $this->_jobs[$queue] ?? [] as $job )
+		{
+			if( $job->getReservedAt() === null && $job->getJobClass() === $jobClass && $job->getArguments() === $args )
+			{
+				return $job->getId();
+			}
+		}
+
+		return null;
 	}
 
 	/**

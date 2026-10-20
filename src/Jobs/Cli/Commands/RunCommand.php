@@ -3,6 +3,7 @@
 namespace Neuron\Jobs\Cli\Commands;
 
 use Neuron\Cli\Commands\Command;
+use Neuron\Jobs\Process\StopSignals;
 
 /**
  * CLI command for running both the scheduler and queue worker together.
@@ -450,15 +451,13 @@ class RunCommand extends Command
 	 */
 	private function registerSignalHandlers(): void
 	{
-		if( !function_exists( 'pcntl_signal' ) )
+		// SIGTERM, SIGINT and, when no terminal is attached, SIGWINCH - the
+		// stop signal of the php:*-apache Docker image. Children are always
+		// stopped with SIGTERM regardless of what we received.
+		if( !StopSignals::register( [ $this, 'handleSignal' ] ) )
 		{
 			$this->output->warning( 'PCNTL extension not available - graceful shutdown may not work' );
-			return;
 		}
-
-		pcntl_signal( SIGTERM, [$this, 'handleSignal'] );
-		pcntl_signal( SIGINT, [$this, 'handleSignal'] );
-		pcntl_async_signals( true );
 	}
 
 	/**

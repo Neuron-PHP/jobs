@@ -1,3 +1,12 @@
+## 0.2.18 2026-10-20
+
+* Workers, the scheduler and `jobs:run` now treat `SIGWINCH` as a stop
+  request when no terminal is attached (`Process\StopSignals`). The official
+  `php:*-apache` Docker image declares `STOPSIGNAL SIGWINCH`, so `docker stop`,
+  Kubernetes, ECS and Railway all sent that to CLI containers built from it;
+  PHP ignored it and the process was killed mid-job when the grace period
+  ended. In a terminal `SIGWINCH` still just means the window was resized.
+
 ## 0.2.17 2026-10-20
 
 Workers and the scheduler now run as proper long-lived application processes.
