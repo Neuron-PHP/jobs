@@ -4,6 +4,12 @@
 
 * An idle worker no longer logs "Queue is empty, sleeping for N seconds" on
   every poll.
+* `jobs:work` and `jobs:run` now boot the application when `config/` exists
+  but holds no `neuron.yaml`, as `jobs:schedule` already did. A container
+  configured entirely through environment variables was logging "no
+  configuration directory could be found" and running every job without the
+  application's initializers. A directory holding `neuron.yaml` is still
+  preferred when several candidates exist.
 
 ## 0.2.18 2026-10-20
 

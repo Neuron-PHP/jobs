@@ -263,10 +263,30 @@ class WorkerBootstrapperTest extends TestCase
 		$this->assertNull( ConfigLocator::locate( null, $siteRoot . '/a/b/c/d' ) );
 	}
 
-	public function testConfigLocatorRequiresNeuronYaml(): void
+	public function testConfigLocatorAcceptsConfigDirectoryWithoutNeuronYaml(): void
 	{
+		// All settings from the environment: config/ exists for the schedule and
+		// the like, but holds no neuron.yaml. The application must still boot.
 		unlink( $this->configDir . '/neuron.yaml' );
 
-		$this->assertNull( ConfigLocator::locate( null, dirname( $this->configDir ) ) );
+		$this->assertEquals( realpath( $this->configDir ), ConfigLocator::locate( null, dirname( $this->configDir ) ) );
+	}
+
+	public function testConfigLocatorPrefersDirectoryHoldingNeuronYaml(): void
+	{
+		// A bare config/ nearer the working directory must not shadow the one
+		// that actually holds neuron.yaml further up.
+		$nearer = dirname( $this->configDir ) . '/public/config';
+		mkdir( $nearer, 0777, true );
+
+		try
+		{
+			$this->assertEquals( realpath( $this->configDir ), ConfigLocator::locate( null, dirname( $nearer ) ) );
+		}
+		finally
+		{
+			rmdir( $nearer );
+			rmdir( dirname( $nearer ) );
+		}
 	}
 }
