@@ -6,6 +6,7 @@ use Cron\CronExpression;
 use Neuron\Application\CommandLineBase;
 use Neuron\Application\CrossCutting\Event;
 use Neuron\Jobs\Events\SchedulerJobTriggeredEvent;
+use Neuron\Jobs\Process\StopSignals;
 use Neuron\Jobs\Schedule\IScheduleLock;
 use Neuron\Log\Log;
 use Symfony\Component\Yaml\Exception\ParseException;
@@ -93,29 +94,22 @@ class Scheduler extends CommandLineBase
 	}
 
 	/**
-	 * Route SIGTERM and SIGINT to stop(). No-op without the pcntl extension,
-	 * in which case the default action (immediate termination) applies.
+	 * Route the stop signals (SIGTERM, SIGINT and, headless, SIGWINCH - see
+	 * StopSignals) to stop(). No-op without the pcntl extension, in which
+	 * case the default action (immediate termination) applies.
 	 *
 	 * @return void
 	 */
 	private function registerSignalHandlers(): void
 	{
-		if( $this->_signalsRegistered || !function_exists( 'pcntl_signal' ) )
+		if( $this->_signalsRegistered )
 		{
 			return;
 		}
 
-		pcntl_async_signals( true );
-
-		pcntl_signal( SIGTERM, function() {
+		$this->_signalsRegistered = StopSignals::register( function() {
 			$this->stop();
 		} );
-
-		pcntl_signal( SIGINT, function() {
-			$this->stop();
-		} );
-
-		$this->_signalsRegistered = true;
 	}
 
 	/**

@@ -113,9 +113,33 @@ class QueueManager
 		// taken as-is (including `url`) and interpreted by
 		// Neuron\Data\Database\ConnectionFactory, so the queue accepts exactly
 		// the same database configuration as the rest of the application.
+		//
+		// `queue.connection` names that section, `database` unless set, so the
+		// queue can live in a different database from the application's own -
+		// one the application only reads, for instance.
 		if( $config['driver'] === 'database' )
 		{
-			$config['database'] = $settings->getSection( 'database' ) ?? [];
+			$section = $settings->get( 'queue', 'connection' );
+			$section = is_string( $section ) && $section !== '' ? $section : 'database';
+
+			$config['database'] = $settings->getSection( $section ) ?? [];
+
+			// DATABASE_URL describes the `database` section. Applied to a named
+			// connection it would silently move the queue back to that database.
+			if( $section !== 'database' )
+			{
+				$config['database']['use_environment'] = false;
+			}
+
+			foreach( [ 'jobs_table', 'failed_jobs_table' ] as $key )
+			{
+				$table = $settings->get( 'queue', $key );
+
+				if( is_string( $table ) && $table !== '' )
+				{
+					$config['database'][ $key ] = $table;
+				}
+			}
 		}
 
 		// Load file settings if using file driver
@@ -196,6 +220,21 @@ class QueueManager
 		}
 
 		$queue = $queue ?? $this->_config['default_queue'] ?? 'default';
+
+		// A unique job already waiting to run is not queued again: the pending
+		// one will do the same work. One that is running does not count, so a
+		// run that starts after it began still happens.
+		if( $job instanceof IUniqueJob && $this->_driver instanceof IUniqueQueue )
+		{
+			$pending = $this->_driver->findPending( get_class( $job ), $args, $queue );
+
+			if( $pending !== null )
+			{
+				Log::info( "Not dispatching " . get_class( $job ) . ": the same job is already pending on '$queue' ($pending)" );
+
+				return $pending;
+			}
+		}
 
 		return $this->_driver->push( $job, $args, $queue, $delay );
 	}

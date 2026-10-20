@@ -131,6 +131,42 @@ class WorkerTest extends TestCase
 		$this->assertEquals(1, $this->worker->getJobsProcessed());
 	}
 
+	public function testRunStopsOnSigwinchWhenHeadless(): void
+	{
+		if( !function_exists( 'pcntl_signal' ) || !function_exists( 'posix_kill' ) )
+		{
+			$this->markTestSkipped( 'pcntl/posix not available' );
+		}
+
+		// `docker stop` on a php:*-apache image sends SIGWINCH. Handlers are
+		// registered in the constructor, so build the worker after the override.
+		\Neuron\Jobs\Process\StopSignals::assumeHeadless( true );
+
+		try
+		{
+			$queueManager = $this->createMock( QueueManager::class );
+			$worker = new Worker( $queueManager );
+
+			// First job signals; nothing further should be processed.
+			$queueManager->expects( $this->once() )
+				->method( 'processNextJob' )
+				->willReturnCallback( function() {
+					posix_kill( posix_getpid(), SIGWINCH );
+					return true;
+				} );
+
+			$worker->setSleep( 0 );
+			$worker->run();
+
+			$this->assertEquals( 1, $worker->getJobsProcessed() );
+		}
+		finally
+		{
+			\Neuron\Jobs\Process\StopSignals::assumeHeadless( null );
+			pcntl_signal( SIGWINCH, SIG_DFL );
+		}
+	}
+
 	public function testRunStopsWhenMaxJobsReached(): void
 	{
 		// Mock queue manager to always have jobs available

@@ -14,7 +14,7 @@ use Neuron\Log\Log;
  *
  * @package Neuron\Jobs\Queue
  */
-class DatabaseQueue implements IQueue, IQueueStats
+class DatabaseQueue implements IQueue, IQueueStats, IUniqueQueue
 {
 	private \PDO $_connection;
 	private string $_jobsTable = 'jobs';
@@ -29,7 +29,10 @@ class DatabaseQueue implements IQueue, IQueueStats
 
 	/**
 	 * @param array $config Database configuration (see Neuron\Data\Database\ConnectionFactory)
-	 *        plus optional `jobs_table`, `failed_jobs_table` and `retry_after`.
+	 *        plus optional `jobs_table`, `failed_jobs_table` and `retry_after`, and
+	 *        `use_environment` - false to ignore DATABASE_URL, which otherwise
+	 *        overrides the configuration (QueueManager sets it for a
+	 *        `queue.connection` other than `database`).
 	 * @param \PDO|null $connection Existing connection to reuse instead of opening one
 	 */
 	public function __construct( array $config, ?\PDO $connection = null )
@@ -73,11 +76,34 @@ class DatabaseQueue implements IQueue, IQueueStats
 	 */
 	private function createConnection( array $config ): \PDO
 	{
-		unset( $config['jobs_table'], $config['failed_jobs_table'], $config['retry_after'] );
+		$useEnvironment = (bool)( $config['use_environment'] ?? true );
+
+		unset( $config['jobs_table'], $config['failed_jobs_table'], $config['retry_after'], $config['use_environment'] );
 
 		try
 		{
-			return ConnectionFactory::createFromConfig( $config );
+			if( $useEnvironment )
+			{
+				return ConnectionFactory::createFromConfig( $config );
+			}
+
+			// createFromConfig() always applies DATABASE_URL, so the same steps
+			// without it.
+			$config = ConnectionFactory::normalize( $config, false );
+
+			$pdo = new \PDO(
+				ConnectionFactory::buildDsn( $config ),
+				$config['user'] ?? null,
+				$config['pass'] ?? null,
+				[
+					\PDO::ATTR_ERRMODE            => \PDO::ERRMODE_EXCEPTION,
+					\PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+				]
+			);
+
+			ConnectionFactory::initializeConnection( $pdo, $config['adapter'] );
+
+			return $pdo;
 		}
 		catch( \InvalidArgumentException $e )
 		{
@@ -111,6 +137,38 @@ class DatabaseQueue implements IQueue, IQueueStats
 		Log::debug( "Job pushed to queue: {$queuedJob->getId()} ({$queuedJob->getJobClass()})" );
 
 		return $queuedJob->getId();
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function findPending( string $jobClass, array $args, string $queue ): ?string
+	{
+		$stmt = $this->_connection->prepare(
+			"SELECT id, payload FROM {$this->_jobsTable}
+			  WHERE queue = :queue AND reserved_at IS NULL
+			  ORDER BY available_at ASC, id ASC"
+		);
+
+		$stmt->execute( [ 'queue' => $queue ] );
+
+		// Compared as they come back out of the payload, so an int argument
+		// matches the int it was stored as and not a numeric string.
+		$args = json_decode( json_encode( $args, JSON_THROW_ON_ERROR ), true );
+
+		while( $row = $stmt->fetch( \PDO::FETCH_ASSOC ) )
+		{
+			$data = json_decode( (string)$row['payload'], true );
+
+			if( is_array( $data ) && ( $data['class'] ?? null ) === $jobClass && ( $data['args'] ?? null ) === $args )
+			{
+				$stmt->closeCursor();
+
+				return (string)$row['id'];
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -178,7 +236,7 @@ class DatabaseQueue implements IQueue, IQueueStats
 			WHERE queue = :queue
 			AND available_at <= :now
 			AND reserved_at IS NULL
-			ORDER BY available_at ASC
+			ORDER BY available_at ASC, id ASC
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED";
 
@@ -245,7 +303,7 @@ class DatabaseQueue implements IQueue, IQueueStats
 			WHERE queue = :queue
 			AND available_at <= :now
 			AND reserved_at IS NULL
-			ORDER BY available_at ASC
+			ORDER BY available_at ASC, id ASC
 			LIMIT 1";
 
 		// Reservation is a compare-and-set on reserved_at IS NULL, so two

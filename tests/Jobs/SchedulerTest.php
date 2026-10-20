@@ -462,4 +462,43 @@ class SchedulerTest extends TestCase
 		$this->assertTrue( $scheduler->shouldStop() );
 		$this->assertLessThan( 2.0, microtime( true ) - $start );
 	}
+
+	public function testSigwinchStopsTheLoopWhenHeadless()
+	{
+		if( !function_exists( 'pcntl_signal' ) || !function_exists( 'posix_kill' ) )
+		{
+			$this->markTestSkipped( 'pcntl/posix not available' );
+		}
+
+		// What `docker stop` sends a container built from php:*-apache.
+		\Neuron\Jobs\Process\StopSignals::assumeHeadless( true );
+
+		try
+		{
+			$scheduler = $this->App;
+
+			$signaller = new class implements IJob {
+				public function getName(): string { return 'winch'; }
+				public function run( array $argv = [] ): mixed
+				{
+					posix_kill( posix_getpid(), SIGWINCH );
+					return true;
+				}
+			};
+
+			$scheduler->addJob( 'winch', '* * * * *', $signaller );
+			$scheduler->setInterval( 3600 );
+
+			$start = microtime( true );
+			$scheduler->infinitePoll();
+
+			$this->assertTrue( $scheduler->shouldStop() );
+			$this->assertLessThan( 2.0, microtime( true ) - $start );
+		}
+		finally
+		{
+			\Neuron\Jobs\Process\StopSignals::assumeHeadless( null );
+			pcntl_signal( SIGWINCH, SIG_DFL );
+		}
+	}
 }

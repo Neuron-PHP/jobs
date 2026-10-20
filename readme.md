@@ -264,6 +264,14 @@ progress finishes, so every job due at that minute is still triggered, then
 the process exits instead of sleeping until the next interval. That makes
 `systemctl stop`, `docker stop` and `jobs:run` shutdowns lossless.
 
+**Stop signals in containers:** when no terminal is attached, the scheduler,
+workers and `jobs:run` also stop on `SIGWINCH`. The official `php:*-apache`
+Docker image declares `STOPSIGNAL SIGWINCH` (Apache's graceful stop), so
+that is what `docker stop`, Kubernetes, ECS and Railway send a CLI container
+built from it; without this the process would be killed mid-job when the
+grace period ran out. Setting `stop_signal: SIGTERM` on those services is
+still good practice but no longer required.
+
 **Cron Mode** (single poll per invocation):
 
 Add to your system crontab:
