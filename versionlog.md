@@ -1,4 +1,4 @@
-## 0.2.17
+## 0.2.17 2026-10-20
 
 Workers and the scheduler now run as proper long-lived application processes.
 
