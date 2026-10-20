@@ -1,4 +1,4 @@
-## 0.2.18
+## 0.2.18 2026-10-20
 
 * Workers, the scheduler and `jobs:run` now treat `SIGWINCH` as a stop
   request when no terminal is attached (`Process\StopSignals`). The official
