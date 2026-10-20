@@ -4,6 +4,9 @@ namespace Neuron\Jobs;
 
 use Cron\CronExpression;
 use Neuron\Application\CommandLineBase;
+use Neuron\Application\CrossCutting\Event;
+use Neuron\Jobs\Events\SchedulerJobTriggeredEvent;
+use Neuron\Jobs\Schedule\IScheduleLock;
 use Neuron\Log\Log;
 use Symfony\Component\Yaml\Exception\ParseException;
 use Symfony\Component\Yaml\Yaml;
@@ -58,6 +61,84 @@ class Scheduler extends CommandLineBase
 	private string $_configFile =  'schedule.yaml';
 	private bool $_debug = false;
 	private ?string $_basePath = null;
+	private ?IScheduleLock $_lock = null;
+	private bool $_shouldStop = false;
+	private bool $_signalsRegistered = false;
+
+	/**
+	 * Ask the poll loop to exit once the current poll has finished.
+	 *
+	 * Called from the SIGTERM/SIGINT handlers; safe to call from anywhere.
+	 * A poll in progress completes so every job due at that minute is still
+	 * triggered, then infinitePoll() returns instead of sleeping.
+	 *
+	 * @return void
+	 */
+	public function stop(): void
+	{
+		if( !$this->_shouldStop )
+		{
+			Log::info( "Scheduler received stop signal, shutting down gracefully..." );
+		}
+
+		$this->_shouldStop = true;
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function shouldStop(): bool
+	{
+		return $this->_shouldStop;
+	}
+
+	/**
+	 * Route SIGTERM and SIGINT to stop(). No-op without the pcntl extension,
+	 * in which case the default action (immediate termination) applies.
+	 *
+	 * @return void
+	 */
+	private function registerSignalHandlers(): void
+	{
+		if( $this->_signalsRegistered || !function_exists( 'pcntl_signal' ) )
+		{
+			return;
+		}
+
+		pcntl_async_signals( true );
+
+		pcntl_signal( SIGTERM, function() {
+			$this->stop();
+		} );
+
+		pcntl_signal( SIGINT, function() {
+			$this->stop();
+		} );
+
+		$this->_signalsRegistered = true;
+	}
+
+	/**
+	 * Guard triggers with a lock so several schedulers can share a schedule.
+	 *
+	 * @param IScheduleLock|null $lock
+	 * @return Scheduler
+	 */
+
+	public function setLock( ?IScheduleLock $lock ): Scheduler
+	{
+		$this->_lock = $lock;
+		return $this;
+	}
+
+	/**
+	 * @return IScheduleLock|null
+	 */
+
+	public function getLock(): ?IScheduleLock
+	{
+		return $this->_lock;
+	}
 
 
 	/**
@@ -174,7 +255,7 @@ class Scheduler extends CommandLineBase
 	 * @return void
 	 */
 
-	public function scheduleJobs( $schedule ): void
+	public function scheduleJobs( array $schedule ): void
 	{
 		foreach( $schedule as $name => $job )
 		{
@@ -274,22 +355,30 @@ class Scheduler extends CommandLineBase
 	{
 		Log::debug( "Starting infinite poll.." );
 
-		while( true )
+		$this->registerSignalHandlers();
+
+		while( !$this->_shouldStop )
 		{
 			$this->poll();
+
+			if( $this->_shouldStop || $this->_debug )
+			{
+				break;
+			}
 
 			// Wake on the interval boundary - the top of the minute, at the default -
 			// rather than a fixed interval after the work, which drifts by however
 			// long the poll took. Polls that drift step over minutes entirely.
+			// A signal interrupts sleep() early; the loop condition then exits.
 			if( $this->_interval > 0 )
 			{
 				sleep( $this->_interval - ( time() % $this->_interval ) );
 			}
+		}
 
-			if( $this->_debug )
-			{
-				break;
-			}
+		if( $this->_shouldStop )
+		{
+			Log::info( "Scheduler stopped gracefully." );
 		}
 	}
 
@@ -321,10 +410,16 @@ class Scheduler extends CommandLineBase
 
 			$this->_jobs[ $index ][ 'last_poll' ] = $now;
 
+			if( $due && $this->_lock !== null && !$this->_lock->acquire( $job['name'], $this->scheduledMinute( $job, $now ) ) )
+			{
+				Log::info( "Skipping {$job['name']}: another scheduler claimed this run." );
+				continue;
+			}
+
 			if( $due )
 			{
 				// Emit scheduler job triggered event
-				\Neuron\Application\CrossCutting\Event::emit( new \Neuron\Jobs\Events\SchedulerJobTriggeredEvent(
+				Event::emit( new SchedulerJobTriggeredEvent(
 					$job['name'],
 					get_class( $job['job'] ),
 					(string)$job['cron'],
@@ -332,7 +427,7 @@ class Scheduler extends CommandLineBase
 				) );
 
 				// If queue is specified, dispatch to queue instead of running directly
-				if( isset( $job['queue'] ) && $job['queue'] !== null )
+				if( isset( $job[ 'queue'] ) )
 				{
 					Log::debug( "Dispatching job to queue: {$job['name']} -> {$job['queue']}" );
 
@@ -396,6 +491,24 @@ class Scheduler extends CommandLineBase
 		}
 
 		return true;
+	}
+
+	/**
+	 * The minute a due job is being fired for: its most recent scheduled time
+	 * at or before the poll. Every scheduler computes the same value for the
+	 * same run, which is what makes it a usable lock key.
+	 *
+	 * @param array $job
+	 * @param \DateTimeImmutable $now
+	 * @return \DateTimeImmutable
+	 */
+
+	private function scheduledMinute( array $job, \DateTimeImmutable $now ): \DateTimeImmutable
+	{
+		/** @var CronExpression $cron */
+		$cron = $job[ 'cron' ];
+
+		return \DateTimeImmutable::createFromMutable( $cron->getPreviousRunDate( $now, 0, true ) );
 	}
 
 	/**

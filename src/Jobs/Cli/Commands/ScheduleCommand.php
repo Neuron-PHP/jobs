@@ -4,6 +4,12 @@ namespace Neuron\Jobs\Cli\Commands;
 
 use Neuron\Cli\Commands\Command;
 use Neuron\Core\Registry\RegistryKeys;
+use Neuron\Data\Settings\Source\ISettingSource;
+use Neuron\Jobs\Bootstrap\WorkerBootstrapper;
+use Neuron\Jobs\Queue\DatabaseQueue;
+use Neuron\Jobs\Queue\QueueManager;
+use Neuron\Jobs\Schedule\DatabaseScheduleLock;
+use Neuron\Jobs\Schedule\IScheduleLock;
 use Neuron\Jobs\Scheduler;
 use Neuron\Data\Settings\Source\Yaml;
 use Neuron\Data\Objects\Version;
@@ -15,6 +21,18 @@ use Neuron\Data\Objects\Version;
 class ScheduleCommand extends Command
 {
 	private ?Scheduler $scheduler = null;
+	private ?WorkerBootstrapper $bootstrapper = null;
+
+	/**
+	 * Inject a bootstrapper (tests); defaults to a new WorkerBootstrapper.
+	 *
+	 * @param WorkerBootstrapper $bootstrapper
+	 * @return void
+	 */
+	public function setBootstrapper( WorkerBootstrapper $bootstrapper ): void
+	{
+		$this->bootstrapper = $bootstrapper;
+	}
 	
 	/**
 	 * @inheritDoc
@@ -42,6 +60,7 @@ class ScheduleCommand extends Command
 		$this->addOption( 'config', 'c', true, 'Path to configuration directory' );
 		$this->addOption( 'config-file', 'f', true, 'Schedule configuration filename (default: schedule.yaml)' );
 		$this->addOption( 'debug', 'd', false, 'Enable debug mode (single poll then exit)' );
+		$this->addOption( 'no-bootstrap', null, false, 'Skip booting the application (jobs run without container/database context)' );
 	}
 	
 	/**
@@ -58,7 +77,45 @@ class ScheduleCommand extends Command
 			$this->output->info( 'Use --config to specify the configuration directory' );
 			return 1;
 		}
-		
+
+		// Boot the application context so jobs that run inline in the
+		// scheduler process, and the dispatch() calls for queued ones, see the
+		// same container, database and listeners a request would.
+		$bootstrapper = null;
+
+		if( !$this->input->hasOption( 'no-bootstrap' ) )
+		{
+			$bootstrapper = $this->bootstrapper ?? new WorkerBootstrapper();
+			$app = $bootstrapper->boot( 'scheduler', $configPath );
+
+			if( $app )
+			{
+				$this->output->info( 'Application: ' . get_class( $app ) );
+			}
+			else
+			{
+				$this->output->warning( 'Running without application context' );
+			}
+		}
+
+		try
+		{
+			return $this->runScheduler( $configPath );
+		}
+		finally
+		{
+			$bootstrapper?->shutdown();
+		}
+	}
+
+	/**
+	 * Initialise and run the scheduler.
+	 *
+	 * @param string $configPath
+	 * @return int Exit code
+	 */
+	private function runScheduler( string $configPath ): int
+	{
 		// Initialize the scheduler
 		try
 		{
@@ -186,8 +243,48 @@ class ScheduleCommand extends Command
 		
 		// Set the base path for the scheduler to find schedule.yaml
 		$scheduler->setBasePath( dirname( $configPath ) );
+
+		$scheduler->setLock( $this->createLock( $settings ) );
 		
 		return $scheduler;
+	}
+
+	/**
+	 * Build the schedule lock named by `queue.schedule_lock`, if any.
+	 *
+	 * `database` shares the queue's PDO connection, so it only applies when the
+	 * queue driver is `database` too. Anything else (or unset) means no lock:
+	 * a single scheduler needs none.
+	 *
+	 * @param ISettingSource|null $settings
+	 * @return IScheduleLock|null
+	 */
+	private function createLock( ?ISettingSource $settings ): ?IScheduleLock
+	{
+		$mode = $settings?->get( 'queue', 'schedule_lock' );
+
+		if( !is_string( $mode ) || $mode === '' || $mode === 'none' )
+		{
+			return null;
+		}
+
+		if( $mode !== 'database' )
+		{
+			$this->output->warning( "Unknown queue.schedule_lock '{$mode}'; running without a schedule lock" );
+			return null;
+		}
+
+		$driver = QueueManager::fromRegistry()->getDriver();
+
+		if( !$driver instanceof DatabaseQueue )
+		{
+			$this->output->warning( 'queue.schedule_lock: database needs queue.driver: database; running without a schedule lock' );
+			return null;
+		}
+
+		$this->output->info( 'Schedule lock: database' );
+
+		return new DatabaseScheduleLock( $driver->getConnection() );
 	}
 	
 	/**

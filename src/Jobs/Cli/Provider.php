@@ -54,5 +54,15 @@ class Provider
 			'jobs:stats',
 			'Neuron\\Jobs\\Cli\\Commands\\StatsCommand'
 		);
+
+		$registry->register(
+			'jobs:restart',
+			'Neuron\\Jobs\\Cli\\Commands\\RestartCommand'
+		);
+
+		$registry->register(
+			'jobs:run',
+			'Neuron\\Jobs\\Cli\\Commands\\RunCommand'
+		);
 	}
 }

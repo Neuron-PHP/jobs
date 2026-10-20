@@ -13,10 +13,11 @@ use Neuron\Log\Log;
  *
  * @package Neuron\Jobs\Queue
  */
-class FileQueue implements IQueue
+class FileQueue implements IQueue, IQueueStats
 {
 	private string $_path;
 	private string $_failedPath;
+	private int $_retryAfter = 90; // seconds
 
 	/**
 	 * @param array $config Configuration array
@@ -25,9 +26,20 @@ class FileQueue implements IQueue
 	{
 		$this->_path = rtrim( $config['path'] ?? 'storage/queue', '/' );
 		$this->_failedPath = $this->_path . '/failed';
+		$this->_retryAfter = (int)( $config['retry_after'] ?? 90 );
 
 		$this->ensureDirectoryExists( $this->_path );
 		$this->ensureDirectoryExists( $this->_failedPath );
+	}
+
+	/**
+	 * Seconds after which a reserved job is considered abandoned and released.
+	 *
+	 * @return int
+	 */
+	public function getRetryAfter(): int
+	{
+		return $this->_retryAfter;
 	}
 
 	/**
@@ -127,6 +139,21 @@ class FileQueue implements IQueue
 					flock( $fp, LOCK_UN );
 					fclose( $fp );
 					continue;
+				}
+
+				// A reserved job belongs to another worker unless its reservation
+				// has gone stale (worker crashed mid-job), in which case we
+				// reclaim it here exactly as DatabaseQueue::releaseExpiredJobs does.
+				if( $jobData['reserved_at'] !== null )
+				{
+					if( $jobData['reserved_at'] >= $now - $this->_retryAfter )
+					{
+						flock( $fp, LOCK_UN );
+						fclose( $fp );
+						continue;
+					}
+
+					Log::debug( "Reclaiming stale reservation: {$jobData['id']}" );
 				}
 
 				// Check if job is available
@@ -270,9 +297,71 @@ class FileQueue implements IQueue
 			return 0;
 		}
 
-		$files = glob( $queuePath . '/job_*.json' );
+		// Count pending jobs only, matching DatabaseQueue::size(). Jobs that are
+		// reserved (in flight) are excluded.
+		$count = 0;
 
-		return count( $files );
+		foreach( glob( $queuePath . '/job_*.json' ) as $file )
+		{
+			$jobData = json_decode( (string)file_get_contents( $file ), true );
+
+			if( !is_array( $jobData ) || ( $jobData['reserved_at'] ?? null ) !== null )
+			{
+				continue;
+			}
+
+			$count++;
+		}
+
+		return $count;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function getStats( string $queue = 'default' ): array
+	{
+		$stats = [ 'pending' => 0, 'delayed' => 0, 'reserved' => 0, 'oldest_pending_age' => null ];
+		$queuePath = $this->getQueuePath( $queue );
+
+		if( !is_dir( $queuePath ) )
+		{
+			return $stats;
+		}
+
+		$now = time();
+		$oldest = null;
+
+		foreach( glob( $queuePath . '/job_*.json' ) as $file )
+		{
+			$jobData = json_decode( (string)file_get_contents( $file ), true );
+
+			if( !is_array( $jobData ) )
+			{
+				continue;
+			}
+
+			if( ( $jobData['reserved_at'] ?? null ) !== null )
+			{
+				$stats['reserved']++;
+				continue;
+			}
+
+			$availableAt = (int)( $jobData['available_at'] ?? 0 );
+
+			if( $availableAt > $now )
+			{
+				$stats['delayed']++;
+				continue;
+			}
+
+			$stats['pending']++;
+			$oldest = $oldest === null ? $availableAt : min( $oldest, $availableAt );
+		}
+
+		$stats['oldest_pending_age'] = $oldest === null ? null : max( 0, $now - $oldest );
+
+		return $stats;
 	}
 
 	/**

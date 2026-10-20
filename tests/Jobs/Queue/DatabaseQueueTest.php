@@ -526,4 +526,41 @@ class DatabaseQueueTest extends TestCase
 		$this->queue->delete($queuedJob2);
 		$this->assertEquals(0, $this->queue->size('retry'));
 	}
+
+	public function testGetStatsSplitsPendingDelayedAndReserved(): void
+	{
+		$this->assertInstanceOf(\Neuron\Jobs\Queue\IQueueStats::class, $this->queue);
+
+		$this->assertEquals(
+			['pending' => 0, 'delayed' => 0, 'reserved' => 0, 'oldest_pending_age' => null],
+			$this->queue->getStats('stats')
+		);
+
+		$this->queue->push(new DatabaseQueueTestJob(), [], 'stats');
+		$this->queue->push(new DatabaseQueueTestJob(), [], 'stats');
+		$this->queue->push(new DatabaseQueueTestJob(), [], 'stats', 600);
+		$this->queue->pop('stats');
+
+		// Backdate the remaining pending job so it has a measurable age.
+		$this->pdo->exec("UPDATE jobs SET available_at = " . (time() - 120) . " WHERE queue = 'stats' AND reserved_at IS NULL AND available_at <= " . time());
+
+		$stats = $this->queue->getStats('stats');
+
+		$this->assertEquals(1, $stats['pending']);
+		$this->assertEquals(1, $stats['delayed']);
+		$this->assertEquals(1, $stats['reserved']);
+		$this->assertEqualsWithDelta(120, $stats['oldest_pending_age'], 1);
+	}
+
+	public function testSqliteUsesCompareAndSetNotSkipLocked(): void
+	{
+		// SQLite has no row locks; pop() must take the CAS path. Observable
+		// only indirectly: popping works and never opens a transaction.
+		$this->queue->push(new DatabaseQueueTestJob(), [], 'cas');
+
+		$job = $this->queue->pop('cas');
+
+		$this->assertNotNull($job);
+		$this->assertFalse($this->pdo->inTransaction());
+	}
 }

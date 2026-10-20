@@ -13,6 +13,18 @@ use Neuron\Cli\Commands\Command;
 class RunCommand extends Command
 {
 	private array $childProcesses = [];
+
+	/** @var array<string,int> child name => unix time it may be restarted */
+	private array $pendingRestarts = [];
+
+	/** @var array<string,int> child name => consecutive crash count */
+	private array $failures = [];
+
+	/** @var array<string,int> child name => unix time it was last started */
+	private array $startedAt = [];
+
+	/** Seconds a child must stay up for its crash count to reset. */
+	private const STABLE_UPTIME = 60;
 	private bool $shutdown = false;
 
 	/**
@@ -46,6 +58,9 @@ class RunCommand extends Command
 		$this->addOption( 'worker-sleep', null, true, 'Worker sleep duration when queue is empty', '3' );
 		$this->addOption( 'worker-timeout', null, true, 'Worker job timeout in seconds', '60' );
 		$this->addOption( 'max-jobs', 'm', true, 'Max jobs to process before restarting worker', '0' );
+		$this->addOption( 'max-restarts', null, true, 'Consecutive crashes of one child before giving up (0 = never)', '0' );
+		$this->addOption( 'max-restart-delay', null, true, 'Cap on the backoff between crash restarts, in seconds', '60' );
+		$this->addOption( 'no-restart', null, false, 'Shut everything down when a child exits (previous behaviour)' );
 	}
 
 	/**
@@ -133,6 +148,7 @@ class RunCommand extends Command
 				'pipes' => $pipes,
 				'name' => 'Scheduler'
 			];
+			$this->startedAt['scheduler'] = time();
 
 			$this->output->success( '[Scheduler] Started' );
 		}
@@ -172,6 +188,7 @@ class RunCommand extends Command
 				'pipes' => $pipes,
 				'name' => 'Worker'
 			];
+			$this->startedAt['worker'] = time();
 
 			$this->output->success( '[Worker] Started' );
 		}
@@ -266,40 +283,35 @@ class RunCommand extends Command
 
 				if( !$status['running'] )
 				{
+					// Drain whatever the child wrote before it died so the cause
+					// is visible, then close it down.
+					$this->relayOutput( $proc );
+
 					$this->output->warning( "[{$proc['name']}] Process exited with code {$status['exitcode']}" );
 
-					// Close pipes
 					fclose( $proc['pipes'][0] );
 					fclose( $proc['pipes'][1] );
 					fclose( $proc['pipes'][2] );
-
-					// Close process
 					proc_close( $proc['process'] );
 
 					unset( $this->childProcesses[$name] );
 
-					// If any critical process dies, shutdown
-					$this->shutdown = true;
-					break;
+					if( !$this->scheduleRestart( $name, $status['exitcode'] ) )
+					{
+						$this->shutdown = true;
+						break;
+					}
+
+					continue;
 				}
 
-				// Read output from stdout
-				$stdout = stream_get_contents( $proc['pipes'][1] );
-				if( $stdout )
-				{
-					$this->output->write( "[{$proc['name']}] " . rtrim( $stdout ) );
-				}
-
-				// Read output from stderr
-				$stderr = stream_get_contents( $proc['pipes'][2] );
-				if( $stderr )
-				{
-					$this->output->error( "[{$proc['name']}] " . rtrim( $stderr ) );
-				}
+				$this->relayOutput( $proc );
 			}
 
-			// If all processes have stopped, exit
-			if( empty( $this->childProcesses ) )
+			$this->restartDueProcesses();
+
+			// If all processes have stopped and none are waiting to restart, exit
+			if( empty( $this->childProcesses ) && empty( $this->pendingRestarts ) )
 			{
 				$this->output->info( '' );
 				$this->output->warning( 'All processes have stopped' );
@@ -311,6 +323,124 @@ class RunCommand extends Command
 		}
 
 		$this->cleanup();
+	}
+
+	/**
+	 * Forward a child's stdout/stderr to our output.
+	 *
+	 * @param array $proc
+	 * @return void
+	 */
+	private function relayOutput( array $proc ): void
+	{
+		$stdout = stream_get_contents( $proc['pipes'][1] );
+		if( $stdout )
+		{
+			$this->output->write( "[{$proc['name']}] " . rtrim( $stdout ) );
+		}
+
+		$stderr = stream_get_contents( $proc['pipes'][2] );
+		if( $stderr )
+		{
+			$this->output->error( "[{$proc['name']}] " . rtrim( $stderr ) );
+		}
+	}
+
+	/**
+	 * Decide whether, and when, to restart a child that exited.
+	 *
+	 * Exit code 0 means the child finished on purpose (--once, --max-jobs,
+	 * --memory, --max-time, jobs:restart): restart it immediately. A crash
+	 * restarts after a delay that doubles per consecutive failure, up to
+	 * max-restart-delay, and gives up after max-restarts consecutive failures
+	 * (0 = never give up). A child that stayed up for a minute resets its
+	 * failure count.
+	 *
+	 * @param string $name
+	 * @param int $exitCode
+	 * @return bool False if the system should shut down instead
+	 */
+	private function scheduleRestart( string $name, int $exitCode ): bool
+	{
+		if( $this->shutdown || $this->input->hasOption( 'no-restart' ) )
+		{
+			return false;
+		}
+
+		$now = time();
+		$startedAt = $this->startedAt[$name] ?? $now;
+
+		if( $exitCode === 0 || ( $now - $startedAt ) >= self::STABLE_UPTIME )
+		{
+			$this->failures[$name] = 0;
+		}
+
+		if( $exitCode !== 0 )
+		{
+			$this->failures[$name] = ( $this->failures[$name] ?? 0 ) + 1;
+
+			$maxRestarts = (int)$this->input->getOption( 'max-restarts', '0' );
+
+			if( $maxRestarts > 0 && $this->failures[$name] > $maxRestarts )
+			{
+				$this->output->error( "[{$name}] Failed {$maxRestarts} times in a row; giving up" );
+				return false;
+			}
+		}
+
+		$delay = 0;
+
+		if( $exitCode !== 0 )
+		{
+			$maxDelay = max( 1, (int)$this->input->getOption( 'max-restart-delay', '60' ) );
+			$delay = min( $maxDelay, 2 ** ( $this->failures[$name] - 1 ) );
+		}
+
+		$this->pendingRestarts[$name] = $now + $delay;
+
+		$this->output->info( "[{$name}] Restarting" . ( $delay > 0 ? " in {$delay}s" : '' ) );
+
+		return true;
+	}
+
+	/**
+	 * Start any children whose restart time has arrived.
+	 *
+	 * @return void
+	 */
+	private function restartDueProcesses(): void
+	{
+		if( $this->shutdown )
+		{
+			return;
+		}
+
+		foreach( $this->pendingRestarts as $name => $at )
+		{
+			if( time() < $at )
+			{
+				continue;
+			}
+
+			unset( $this->pendingRestarts[$name] );
+
+			try
+			{
+				match( $name )
+				{
+					'scheduler' => $this->startScheduler(),
+					'worker' => $this->startWorker(),
+					default => null
+				};
+			}
+			catch( \RuntimeException $e )
+			{
+				$this->output->error( "[{$name}] " . $e->getMessage() );
+
+				// Treat a failed spawn like a crash and try again later.
+				$this->scheduleRestart( $name, 1 );
+			}
+		}
 	}
 
 	/**

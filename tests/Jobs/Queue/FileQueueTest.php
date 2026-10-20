@@ -555,4 +555,105 @@ class FileQueueTest extends TestCase
 		$this->queue->delete($queuedJob2);
 		$this->assertEquals(0, $this->queue->size('retry'));
 	}
+
+	public function testConstructorReadsRetryAfter(): void
+	{
+		$queue = new FileQueue(['path' => $this->tempPath, 'retry_after' => 30]);
+
+		$this->assertEquals(30, $queue->getRetryAfter());
+		$this->assertEquals(90, $this->queue->getRetryAfter());
+	}
+
+	public function testPopDoesNotReturnReservedJob(): void
+	{
+		$this->queue->push(new FileQueueTestJob(), [], 'reserved', 0);
+
+		// A second worker sharing the same storage must not see the job the
+		// first worker is currently running.
+		$otherWorker = new FileQueue(['path' => $this->tempPath]);
+
+		$first = $this->queue->pop('reserved');
+		$this->assertNotNull($first);
+
+		$this->assertNull($otherWorker->pop('reserved'));
+		$this->assertNull($this->queue->pop('reserved'));
+	}
+
+	public function testPopReclaimsStaleReservation(): void
+	{
+		$queue = new FileQueue(['path' => $this->tempPath, 'retry_after' => 60]);
+
+		$jobId = $queue->push(new FileQueueTestJob(), [], 'stale', 0);
+		$queue->pop('stale');
+
+		// Simulate a worker that died 120 seconds ago mid-job.
+		$this->rewriteJobFile('stale', $jobId, ['reserved_at' => time() - 120]);
+
+		$reclaimed = $queue->pop('stale');
+
+		$this->assertNotNull($reclaimed);
+		$this->assertEquals($jobId, $reclaimed->getId());
+		$this->assertEquals(2, $reclaimed->getAttempts());
+	}
+
+	public function testPopLeavesFreshReservationAlone(): void
+	{
+		$queue = new FileQueue(['path' => $this->tempPath, 'retry_after' => 60]);
+
+		$jobId = $queue->push(new FileQueueTestJob(), [], 'fresh', 0);
+		$queue->pop('fresh');
+
+		// Reserved 30 seconds ago, well inside retry_after.
+		$this->rewriteJobFile('fresh', $jobId, ['reserved_at' => time() - 30]);
+
+		$this->assertNull($queue->pop('fresh'));
+	}
+
+	public function testSizeExcludesReservedJobs(): void
+	{
+		$job = new FileQueueTestJob();
+		$this->queue->push($job, [], 'sized', 0);
+		$this->queue->push($job, [], 'sized', 0);
+
+		$this->assertEquals(2, $this->queue->size('sized'));
+
+		$popped = $this->queue->pop('sized');
+		$this->assertEquals(1, $this->queue->size('sized'));
+
+		$this->queue->release($popped, 0);
+		$this->assertEquals(2, $this->queue->size('sized'));
+	}
+
+	/**
+	 * Overwrite fields in a stored job file to simulate another worker's state.
+	 */
+	public function testGetStatsSplitsPendingDelayedAndReserved(): void
+	{
+		$this->assertInstanceOf( \Neuron\Jobs\Queue\IQueueStats::class, $this->queue );
+
+		$this->assertEquals(
+			[ 'pending' => 0, 'delayed' => 0, 'reserved' => 0, 'oldest_pending_age' => null ],
+			$this->queue->getStats( 'stats' )
+		);
+
+		$this->queue->push( new FileQueueTestJob(), [], 'stats' );
+		$this->queue->push( new FileQueueTestJob(), [], 'stats' );
+		$this->queue->push( new FileQueueTestJob(), [], 'stats', 600 );
+		$this->queue->pop( 'stats' );
+
+		$stats = $this->queue->getStats( 'stats' );
+
+		$this->assertEquals( 1, $stats['pending'] );
+		$this->assertEquals( 1, $stats['delayed'] );
+		$this->assertEquals( 1, $stats['reserved'] );
+		$this->assertIsInt( $stats['oldest_pending_age'] );
+	}
+
+	private function rewriteJobFile(string $queue, string $jobId, array $overrides): void
+	{
+		$file = $this->tempPath . '/' . $queue . '/' . $jobId . '.json';
+		$data = json_decode(file_get_contents($file), true);
+
+		file_put_contents($file, json_encode(array_merge($data, $overrides)));
+	}
 }

@@ -2,7 +2,6 @@
 
 use Neuron\Jobs\IJob;
 use Neuron\Jobs\Queue\QueueManager;
-use Neuron\Patterns\Registry;
 
 if( !function_exists( 'dispatch' ) )
 {
@@ -67,21 +66,7 @@ if( !function_exists( 'getQueueManager' ) )
 	 */
 	function getQueueManager(): QueueManager
 	{
-		$registry = Registry::getInstance();
-
-		$queueManager = $registry->get( 'queue.manager' );
-
-		if( !$queueManager )
-		{
-			// Try to get settings from registry (stored by Application as 'Settings')
-			$settingManager = $registry->get( 'Settings' );
-			$settings = $settingManager ? $settingManager->getSource() : null;
-
-			$queueManager = new QueueManager( $settings );
-			$registry->set( 'queue.manager', $queueManager );
-		}
-
-		return $queueManager;
+		return QueueManager::fromRegistry();
 	}
 }
 
