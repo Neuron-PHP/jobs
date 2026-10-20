@@ -19,7 +19,11 @@ class Worker
 	private int $_sleep = 3; // seconds to sleep when queue is empty
 	private int $_maxJobs = 0; // 0 = unlimited
 	private int $_jobsProcessed = 0;
-	private int $_timeout = 60; // seconds
+	private int $_timeout = 60; // seconds; 0 = no limit
+	private int $_memoryLimit = 0; // megabytes; 0 = no limit
+	private int $_maxTime = 0; // seconds the worker may live; 0 = no limit
+	private int $_startedAt = 0;
+	private ?string $_restartFile = null;
 	private bool $_stopWhenEmpty = false;
 
 	/**
@@ -66,6 +70,7 @@ class Worker
 		$queues = is_array( $queues ) ? $queues : [ $queues ];
 
 		$workerId = uniqid( 'worker_', true );
+		$this->_startedAt = time();
 
 		// Emit worker started event
 		\Neuron\Application\CrossCutting\Event::emit( new \Neuron\Jobs\Events\WorkerStartedEvent(
@@ -99,6 +104,12 @@ class Worker
 						break 2;
 					}
 
+					if( $this->shouldRestart() )
+					{
+						$this->stop();
+						break 2;
+					}
+
 					// Don't sleep if we processed a job
 					continue 2;
 				}
@@ -110,6 +121,12 @@ class Worker
 				if( $this->_stopWhenEmpty )
 				{
 					Log::info( "Queue is empty, exiting" );
+					break;
+				}
+
+				if( $this->shouldRestart() )
+				{
+					$this->stop();
 					break;
 				}
 
@@ -136,7 +153,97 @@ class Worker
 	 */
 	private function processNextJob( string $queue ): bool
 	{
-		return $this->_queueManager->processNextJob( $queue );
+		return $this->_queueManager->processNextJob( $queue, $this->_timeout );
+	}
+
+	/**
+	 * Whether the worker has exceeded its memory or lifetime budget.
+	 *
+	 * Both are checked between jobs, never mid-job, so a job is always allowed
+	 * to finish. The process supervisor (systemd, supervisor, jobs:run) is
+	 * expected to start a fresh worker when this one exits.
+	 *
+	 * @return bool
+	 */
+	private function shouldRestart(): bool
+	{
+		if( $this->_memoryLimit > 0 )
+		{
+			$usedMb = (int)( memory_get_usage( true ) / 1048576 );
+
+			if( $usedMb >= $this->_memoryLimit )
+			{
+				Log::info( "Worker memory {$usedMb}MB reached limit of {$this->_memoryLimit}MB, shutting down for restart" );
+				return true;
+			}
+		}
+
+		if( $this->_maxTime > 0 && ( time() - $this->_startedAt ) >= $this->_maxTime )
+		{
+			Log::info( "Worker ran for {$this->_maxTime} seconds, shutting down for restart" );
+			return true;
+		}
+
+		if( $this->restartRequested() )
+		{
+			Log::info( "Restart requested via {$this->_restartFile}, shutting down for restart" );
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether `jobs:restart` has been run since this worker started.
+	 *
+	 * The restart file's mtime is the time of the request; a worker started
+	 * after it ignores it, so one request restarts each running worker once.
+	 *
+	 * @return bool
+	 */
+	private function restartRequested(): bool
+	{
+		if( $this->_restartFile === null )
+		{
+			return false;
+		}
+
+		clearstatcache( true, $this->_restartFile );
+
+		$requestedAt = @filemtime( $this->_restartFile );
+
+		return $requestedAt !== false && $requestedAt > $this->_startedAt;
+	}
+
+	/**
+	 * File whose modification time signals a restart request (see jobs:restart).
+	 *
+	 * @param string|null $path
+	 * @return Worker
+	 */
+	public function setRestartFile( ?string $path ): Worker
+	{
+		$this->_restartFile = $path !== null && $path !== '' ? $path : null;
+		return $this;
+	}
+
+	/**
+	 * @return string|null
+	 */
+	public function getRestartFile(): ?string
+	{
+		return $this->_restartFile;
+	}
+
+	/**
+	 * Default restart file for a site: storage/jobs.restart under the base path.
+	 *
+	 * @param string $basePath
+	 * @return string
+	 */
+	public static function defaultRestartFile( string $basePath ): string
+	{
+		return rtrim( $basePath, '/' ) . '/storage/jobs.restart';
 	}
 
 	/**
@@ -175,7 +282,7 @@ class Worker
 	}
 
 	/**
-	 * Set job timeout in seconds
+	 * Set job timeout in seconds (0 = no limit)
 	 *
 	 * @param int $timeout
 	 * @return self
@@ -183,6 +290,32 @@ class Worker
 	public function setTimeout( int $timeout ): self
 	{
 		$this->_timeout = $timeout;
+		return $this;
+	}
+
+	/**
+	 * Set the memory ceiling in megabytes; the worker exits between jobs once
+	 * exceeded (0 = no limit)
+	 *
+	 * @param int $megabytes
+	 * @return self
+	 */
+	public function setMemoryLimit( int $megabytes ): self
+	{
+		$this->_memoryLimit = $megabytes;
+		return $this;
+	}
+
+	/**
+	 * Set the maximum lifetime in seconds; the worker exits between jobs once
+	 * exceeded (0 = no limit)
+	 *
+	 * @param int $seconds
+	 * @return self
+	 */
+	public function setMaxTime( int $seconds ): self
+	{
+		$this->_maxTime = $seconds;
 		return $this;
 	}
 
@@ -236,5 +369,25 @@ class Worker
 	public function getTimeout(): int
 	{
 		return $this->_timeout;
+	}
+
+	/**
+	 * Get memory limit in megabytes
+	 *
+	 * @return int
+	 */
+	public function getMemoryLimit(): int
+	{
+		return $this->_memoryLimit;
+	}
+
+	/**
+	 * Get maximum lifetime in seconds
+	 *
+	 * @return int
+	 */
+	public function getMaxTime(): int
+	{
+		return $this->_maxTime;
 	}
 }

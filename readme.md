@@ -9,8 +9,12 @@ A lightweight job scheduler and queue system for PHP 8.4+. Schedule recurring ta
 - **Combined Runner**: Single command to run scheduler and worker together
 - **Job Scheduling**: Schedule recurring jobs with cron expressions
 - **Queue System**: Background job processing with retry logic
-- **Multiple Drivers**: Database, file, or synchronous execution
+- **Multiple Drivers**: Database (`SKIP LOCKED` where supported), Redis, file, in-memory (tests), or synchronous execution
+- **Application Context in Workers**: Workers boot your application so jobs get the container, database and events
+- **Operations**: `jobs:restart` after deploys, `jobs:stats` with delayed/in-progress/age, optional schedule lock for several schedulers
 - **Failed Job Management**: Track, retry, and monitor failed jobs
+- **Per-Job Settings**: Optional `IQueueable` for queue, retries, backoff, timeout and a `failed()` hook
+- **Test Helpers**: `QueueAssertions` trait with `assertDispatched()` and friends
 - **Helper Functions**: Simple API for dispatching jobs
 
 ## Quick Start
@@ -75,13 +79,19 @@ logging:
 
 # Queue configuration
 queue:
-  driver: database           # database, file, or sync
+  driver: database           # database, redis, file, array, or sync
   default: default           # Default queue name
-  retry_after: 90           # Seconds before retrying failed jobs
+  retry_after: 90           # Seconds a worker may hold a job before it is released to another
   max_attempts: 3           # Maximum retry attempts
-  backoff: 10               # Backoff multiplier for retries
+  backoff: 10               # Base seconds between retries (doubles each attempt)
+  bootstrap: App\Jobs\WorkerBootstrap   # Boots the application inside jobs:work / jobs:schedule
+  schedule_lock: database   # Optional: lets several jobs:schedule instances share one schedule
+  restart_file: storage/jobs.restart    # Optional: touched by jobs:restart; default shown
+  # redis:                  # Only for driver: redis
+  #   url: redis://127.0.0.1:6379/0     # or host / port / password / database
+  #   prefix: neuron:queue
 
-# Database configuration (for database driver)
+# Database configuration (for database driver; same section the application uses)
 database:
   adapter: sqlite
   name: storage/database.sqlite
@@ -92,13 +102,37 @@ database:
   # user: username
   # pass: password
   # charset: utf8mb4
+  # Or a single URL:
+  # url: mysql://username:password@localhost:3306/dbname?charset=utf8mb4
 ```
 
 **Queue Drivers:**
 
-- **database**: Persistent queue in database (recommended for production)
+- **database**: Persistent queue in database (recommended for production). On
+  PostgreSQL, MySQL 8+ and MariaDB 10.6+ workers claim jobs with
+  `FOR UPDATE SKIP LOCKED`; SQLite and older servers use a compare-and-set
+  update, which is correct but contends under many workers.
+- **redis**: List/sorted-set queue with an atomic Lua pop. Needs the `redis`
+  PHP extension (phpredis), which is checked at runtime and is deliberately
+  not a Composer requirement. Configure under `queue.redis` with either `url`
+  or `host`/`port`/`password`/`database`, plus an optional key `prefix`.
+  Durability is Redis's own: with the default RDB snapshots a crash can lose
+  the most recent pushes, so enable AOF (`appendonly yes`) on the queue's
+  Redis when that matters.
 - **file**: File-based queue in storage directory
-- **sync**: Execute jobs immediately (for testing)
+- **array**: In-memory queue for tests (see `Neuron\Jobs\Testing\QueueAssertions`)
+- **sync**: Execute jobs immediately in the dispatching process. This is the
+  fallback when no `queue:` section exists; a warning is logged.
+
+**Worker bootstrap (`queue.bootstrap`):**
+
+Name a class implementing `Neuron\Jobs\Bootstrap\IWorkerBootstrap` whose
+`boot( string $configPath ): ?Base` returns your application (for example by
+calling your `boot()` function). `jobs:work` and `jobs:schedule` call it once
+at startup, then `start()` the application, so jobs run with the same
+container, database connection, event listeners and view paths a web request
+has, and job classes are resolved through the container. Without it workers
+load event listeners only. CMS sites use `Neuron\Cms\Jobs\WorkerBootstrap`.
 
 ## Job Scheduling
 
@@ -175,7 +209,7 @@ class CleanupLogsJob implements IJob
 
 The job system can be run in three different modes depending on your needs:
 
-### 1. Combined Mode (Recommended)
+### 1. Combined Mode (Development)
 
 Run both scheduler and queue worker together with a single command:
 
@@ -183,7 +217,10 @@ Run both scheduler and queue worker together with a single command:
 vendor/bin/neuron jobs:run
 ```
 
-This is the **easiest way** to run the complete job system. It manages both the scheduler and worker in one process.
+This is the **easiest way** to run the complete job system locally. It manages
+both the scheduler and worker in one process. In production run the scheduler
+(one instance, or several with `queue.schedule_lock`) and workers (as many as
+you need) as separate services so they restart and scale independently.
 
 **Options:**
 - `--schedule-interval=30` - Scheduler polling interval in seconds (default: 60)
@@ -191,6 +228,13 @@ This is the **easiest way** to run the complete job system. It manages both the 
 - `--worker-sleep=5` - Worker sleep when queue is empty (default: 3)
 - `--worker-timeout=120` - Job timeout in seconds (default: 60)
 - `--max-jobs=100` - Max jobs before restarting worker (default: unlimited)
+- `--max-restarts=N` - Give up on a child after N consecutive crashes (default: 0, never)
+- `--max-restart-delay=60` - Cap on the restart backoff in seconds (default: 60)
+- `--no-restart` - Do not restart children that exit
+
+A child that exits cleanly (for example a worker past `--max-jobs`) is
+restarted at once. A crashing child is restarted after 1, 2, 4, 8… seconds up
+to `--max-restart-delay`; the counter resets once it has stayed up a minute.
 
 **Examples:**
 ```bash
@@ -215,6 +259,11 @@ vendor/bin/neuron jobs:schedule
 vendor/bin/neuron jobs:schedule --interval=30
 ```
 
+The daemon handles `SIGTERM`/`SIGINT` (with the pcntl extension): a poll in
+progress finishes, so every job due at that minute is still triggered, then
+the process exits instead of sleeping until the next interval. That makes
+`systemctl stop`, `docker stop` and `jobs:run` shutdowns lossless.
+
 **Cron Mode** (single poll per invocation):
 
 Add to your system crontab:
@@ -222,6 +271,13 @@ Add to your system crontab:
 ```cron
 * * * * * cd /path/to/app && vendor/bin/neuron jobs:schedule --poll
 ```
+
+**Several schedulers:** run one scheduler per deployment unless you set
+`queue.schedule_lock: database`. With the lock on, each scheduler inserts a
+`(job name, due minute)` row into `schedule_locks` before triggering; only the
+first insert wins, so a job due at 02:00 runs once however many schedulers
+poll. The table is created on first use (database driver only; it shares the
+queue connection). Rows older than a week are pruned automatically.
 
 ### 3. Worker Only
 
@@ -239,6 +295,9 @@ vendor/bin/neuron jobs:work --queue=high,default,low
 
 # Custom options
 vendor/bin/neuron jobs:work --sleep=5 --timeout=120 --max-jobs=100
+
+# Recycle the process (under systemd/supervisor) past 128MB or after an hour
+vendor/bin/neuron jobs:work --memory=128 --max-time=3600
 ```
 
 **Worker Options:**
@@ -247,7 +306,31 @@ vendor/bin/neuron jobs:work --sleep=5 --timeout=120 --max-jobs=100
 - `--stop-when-empty`: Stop when no jobs available
 - `--sleep, -s`: Seconds to sleep when queue empty, default: `3`
 - `--max-jobs, -m`: Maximum jobs before stopping, default: `0` (unlimited)
-- `--timeout, -t`: Job timeout in seconds, default: `60`
+- `--timeout, -t`: Job timeout in seconds, default: `60`, `0` disables. Enforced
+  with `pcntl_alarm`; without the pcntl extension the worker warns once and
+  jobs run unbounded. A timed-out job fails with `JobTimeoutException` and is
+  retried like any other failure.
+- `--memory`: Exit once memory use exceeds this many MB (checked between jobs), default: `0` (no limit)
+- `--max-time`: Exit after running this many seconds (checked between jobs), default: `0` (no limit)
+- `--config, -c`: Configuration directory; found automatically from the working directory when omitted
+- `--no-bootstrap`: Skip `queue.bootstrap`; jobs run without the application context
+
+Log lines written by the scheduler and workers carry a `role` context value
+(`scheduler` / `worker`) so the processes can be told apart in a shared log.
+
+**Restarting workers after a deploy:**
+
+Workers hold the code they were started with. Instead of hunting down
+processes, touch the restart file:
+
+```bash
+vendor/bin/neuron jobs:restart
+```
+
+Every worker checks the file's mtime between jobs and exits cleanly once it
+is newer than the worker's start time; systemd/supervisor then starts a fresh
+process on the new code. The file defaults to `storage/jobs.restart` under
+the application root and can be moved with `queue.restart_file`.
 
 ## Queue Processing
 
@@ -279,9 +362,9 @@ $result = dispatchNow(new ProcessDataJob(), ['data' => $data]);
 
 ```php
 use Neuron\Jobs\Queue\QueueManager;
-use Neuron\Patterns\Registry;
 
-$queueManager = Registry::getInstance()->get('queue.manager');
+// The shared instance every process (web, scheduler, worker) resolves
+$queueManager = QueueManager::fromRegistry();
 
 // Dispatch to queue
 $jobId = $queueManager->dispatch(
@@ -328,6 +411,63 @@ class SendEmailJob implements IJob
 }
 ```
 
+With `queue.bootstrap` configured, jobs are created through the application
+container, so constructor dependencies are injected.
+
+#### Per-Job Settings (optional)
+
+Implement `Neuron\Jobs\Queue\IQueueable` as well to override the queue-wide
+configuration for one job. Return `null` from any getter to keep the default.
+
+```php
+class ChargeCardJob implements IJob, IQueueable
+{
+    public function getQueue(): ?string    { return 'payments'; } // used when dispatch() names no queue
+    public function getMaxAttempts(): ?int { return 1; }
+    public function getBackoff(): ?int     { return null; }
+    public function getTimeout(): ?int     { return 30; }         // seconds; overrides --timeout
+
+    public function failed(\Throwable $e): void
+    {
+        // Called once after the final attempt has been stored as failed
+    }
+
+    // getName() / run() as above
+}
+```
+
+### Testing Code That Dispatches Jobs
+
+```php
+use Neuron\Jobs\Testing\QueueAssertions;
+
+class RegistrationTest extends \PHPUnit\Framework\TestCase
+{
+    use QueueAssertions;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->fakeQueue();   // in-memory ArrayQueue; nothing executes
+    }
+
+    public function testQueuesWelcomeEmail(): void
+    {
+        $this->service->register('a@example.com');
+
+        $this->assertDispatched(SendEmailJob::class, fn(array $args) => $args['to'] === 'a@example.com');
+        $this->assertDispatchedOn('emails', SendEmailJob::class);
+        $this->assertDispatchedTimes(SendEmailJob::class, 1);
+        $this->assertNotDispatched(ChargeCardJob::class);
+    }
+}
+```
+
+Also available: `assertNothingDispatched()`, `getFakeQueue()` for direct
+inspection, and `QueueManager::fromRegistry()->processNextJob()` to run the
+next job as a worker would. The previous queue manager is restored after each
+test.
+
 ## Queue Management
 
 ### Monitor Queue Status
@@ -339,6 +479,13 @@ vendor/bin/neuron jobs:stats
 # Show statistics for specific queues
 vendor/bin/neuron jobs:stats --queue=emails,reports
 ```
+
+Per queue this prints pending jobs, delayed jobs (not yet due), jobs in
+progress (reserved by a worker) and the age of the oldest pending job, then
+the failed-job count. A growing oldest-pending age with idle workers usually
+means a stuck reservation or too few workers for that queue. Drivers expose
+these through `Neuron\Jobs\Queue\IQueueStats`; a driver that does not
+implement it reports pending only.
 
 ### Managing Failed Jobs
 

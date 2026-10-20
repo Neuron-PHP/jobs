@@ -341,4 +341,125 @@ class SchedulerTest extends TestCase
 		$this->pollAt( '2026-10-19 10:16:02' );
 		$this->assertSame( 2, $Job->Runs );
 	}
+
+	/**
+	 * With a lock, a due job only fires when the lock is granted, and the lock
+	 * is asked about the job's scheduled minute, not the poll time.
+	 */
+	public function testLockDecidesWhetherADueJobFires()
+	{
+		$Job = new TestJob();
+		$claims = [];
+
+		$lock = new class( $claims ) implements \Neuron\Jobs\Schedule\IScheduleLock {
+			public function __construct( private array &$claims ) {}
+			public bool $Grant = true;
+
+			public function acquire( string $name, \DateTimeInterface $scheduled ): bool
+			{
+				$this->claims[] = $name . '@' . $scheduled->format( 'Y-m-d H:i' );
+				return $this->Grant;
+			}
+		};
+
+		$this->App->addJob( 'TestJob', '15 * * * *', $Job );
+		$this->assertSame( $this->App, $this->App->setLock( $lock ) );
+		$this->assertSame( $lock, $this->App->getLock() );
+
+		// Not due: the lock is never consulted.
+		$this->pollAt( '2026-10-19 10:14:00' );
+		$this->assertSame( [], $claims );
+
+		// Due, granted: runs, and the key is the scheduled minute.
+		$this->pollAt( '2026-10-19 10:15:00' );
+		$this->assertSame( 1, $Job->Runs );
+		$this->assertSame( [ 'TestJob@2026-10-19 10:15' ], $claims );
+
+		// Due but refused: another scheduler owns this run.
+		$lock->Grant = false;
+		$this->assertSame( 0, $this->pollAt( '2026-10-19 11:15:00' ), 'skipped jobs are not counted as triggered' );
+		$this->assertSame( 1, $Job->Runs );
+		$this->assertSame( 'TestJob@2026-10-19 11:15', $claims[1] );
+
+		// A late run is keyed by the minute it was due, so two schedulers that
+		// catch up at different times still agree on the key.
+		$lock->Grant = true;
+		$this->pollAt( '2026-10-19 12:16:30' );
+		$this->assertSame( 'TestJob@2026-10-19 12:15', $claims[2] );
+	}
+
+	public function testWithoutALockEveryDueJobFires()
+	{
+		$Job = new TestJob();
+		$this->App->addJob( 'TestJob', '* * * * *', $Job );
+
+		$this->assertNull( $this->App->getLock() );
+		$this->assertSame( 1, $this->pollAt( '2026-10-19 10:15:00' ) );
+	}
+
+	public function testStopEndsThePollLoopAfterTheCurrentPoll()
+	{
+		// A job that requests shutdown while running: the poll it belongs to
+		// must finish, then infinitePoll() must return instead of sleeping.
+		$scheduler = $this->App;
+		$ran = 0;
+
+		$stopper = new class( $scheduler, $ran ) implements IJob {
+			public function __construct( private Scheduler $scheduler, private int &$ran ) {}
+			public function getName(): string { return 'stopper'; }
+			public function run( array $argv = [] ): mixed
+			{
+				$this->ran++;
+				$this->scheduler->stop();
+				return true;
+			}
+		};
+
+		$after = new TestJob();
+
+		$scheduler->addJob( 'stopper', '* * * * *', $stopper );
+		$scheduler->addJob( 'after', '* * * * *', $after );
+		$scheduler->setInterval( 3600 );
+
+		$this->assertFalse( $scheduler->shouldStop() );
+
+		$start = microtime( true );
+		$scheduler->infinitePoll();
+
+		$this->assertTrue( $scheduler->shouldStop() );
+		$this->assertSame( 1, $ran, 'exactly one poll ran' );
+		$this->assertTrue( $after->Ran, 'jobs after the stopper in the same poll still fire' );
+		$this->assertSame( 1, $after->Runs );
+		$this->assertLessThan( 2.0, microtime( true ) - $start, 'did not sleep for the interval after stop' );
+	}
+
+	public function testSigtermStopsTheLoop()
+	{
+		if( !function_exists( 'pcntl_signal' ) || !function_exists( 'posix_kill' ) )
+		{
+			$this->markTestSkipped( 'pcntl/posix not available' );
+		}
+
+		$scheduler = $this->App;
+
+		// On the first poll, send ourselves SIGTERM. The handler sets the stop
+		// flag; the loop must then exit without sleeping the full interval.
+		$signaller = new class implements IJob {
+			public function getName(): string { return 'signaller'; }
+			public function run( array $argv = [] ): mixed
+			{
+				posix_kill( posix_getpid(), SIGTERM );
+				return true;
+			}
+		};
+
+		$scheduler->addJob( 'signaller', '* * * * *', $signaller );
+		$scheduler->setInterval( 3600 );
+
+		$start = microtime( true );
+		$scheduler->infinitePoll();
+
+		$this->assertTrue( $scheduler->shouldStop() );
+		$this->assertLessThan( 2.0, microtime( true ) - $start );
+	}
 }

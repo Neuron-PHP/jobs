@@ -3,6 +3,7 @@
 namespace Neuron\Jobs\Queue;
 
 use Neuron\Jobs\IJob;
+use Neuron\Patterns\Container\IContainer;
 
 /**
  * Represents a job in the queue with metadata.
@@ -126,17 +127,24 @@ class QueuedJob
 	/**
 	 * Get the job instance
 	 *
+	 * When a container is supplied the job is resolved through it, so jobs may
+	 * declare constructor dependencies like any other service. Without one the
+	 * job must have a no-argument constructor.
+	 *
+	 * @param IContainer|null $container Application container, if available
 	 * @return IJob
 	 * @throws \RuntimeException If job class doesn't exist or doesn't implement IJob
 	 */
-	public function getJob(): IJob
+	public function getJob( ?IContainer $container = null ): IJob
 	{
 		if( !class_exists( $this->_jobClass ) )
 		{
 			throw new \RuntimeException( "Job class not found: {$this->_jobClass}" );
 		}
 
-		$job = new $this->_jobClass();
+		$job = $container !== null
+			? $container->make( $this->_jobClass )
+			: new $this->_jobClass();
 
 		if( !$job instanceof IJob )
 		{

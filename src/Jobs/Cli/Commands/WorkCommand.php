@@ -3,17 +3,36 @@
 namespace Neuron\Jobs\Cli\Commands;
 
 use Neuron\Cli\Commands\Command;
+use Neuron\Jobs\Bootstrap\WorkerBootstrapper;
 use Neuron\Jobs\Cli\Traits\HasQueueManager;
+use Neuron\Jobs\Queue\QueueManager;
 use Neuron\Jobs\Queue\Worker;
 
 /**
  * CLI command for running the queue worker.
  *
- * Processes jobs from the queue in daemon mode or one-time execution.
+ * Processes jobs from the queue in daemon mode or one-time execution. Before
+ * the first job the site's application is booted via `queue.bootstrap` so jobs
+ * run with the same container, database connection, events and view paths a
+ * web request has.
  */
 class WorkCommand extends Command
 {
 	use HasQueueManager;
+
+	private ?WorkerBootstrapper $bootstrapper = null;
+
+	/**
+	 * Inject a bootstrapper (tests); defaults to a new WorkerBootstrapper.
+	 *
+	 * @param WorkerBootstrapper $bootstrapper
+	 * @return void
+	 */
+	public function setBootstrapper( WorkerBootstrapper $bootstrapper ): void
+	{
+		$this->bootstrapper = $bootstrapper;
+	}
+
 	/**
 	 * @inheritDoc
 	 */
@@ -40,7 +59,11 @@ class WorkCommand extends Command
 		$this->addOption( 'stop-when-empty', null, false, 'Stop when queue is empty' );
 		$this->addOption( 'sleep', 's', true, 'Seconds to sleep when queue is empty', '3' );
 		$this->addOption( 'max-jobs', 'm', true, 'Max jobs to process before stopping (0 = unlimited)', '0' );
-		$this->addOption( 'timeout', 't', true, 'Job timeout in seconds', '60' );
+		$this->addOption( 'timeout', 't', true, 'Job timeout in seconds (0 = no limit)', '60' );
+		$this->addOption( 'memory', null, true, 'Memory limit in MB; worker exits between jobs once exceeded (0 = no limit)', '0' );
+		$this->addOption( 'max-time', null, true, 'Max seconds the worker runs before exiting for restart (0 = no limit)', '0' );
+		$this->addOption( 'config', 'c', true, 'Path to configuration directory (located automatically when omitted)' );
+		$this->addOption( 'no-bootstrap', null, false, 'Skip booting the application (jobs run without container/database context)' );
 	}
 
 	/**
@@ -50,12 +73,32 @@ class WorkCommand extends Command
 	{
 		$this->output->info( "Queue Worker Starting..." );
 
+		// Boot the application context first so the queue manager, and every
+		// job, sees the same settings, container and listeners a request would.
+		$bootstrapper = null;
+
+		if( !$this->input->hasOption( 'no-bootstrap' ) )
+		{
+			$bootstrapper = $this->bootstrapper ?? new WorkerBootstrapper();
+			$app = $bootstrapper->boot( 'worker', $this->input->getOption( 'config' ) );
+
+			if( $app )
+			{
+				$this->output->info( "Application: " . get_class( $app ) );
+			}
+			else
+			{
+				$this->output->warning( "Running without application context" );
+			}
+		}
+
 		// Get queue manager
 		$queueManager = $this->getQueueManager();
 
 		if( !$queueManager )
 		{
 			$this->output->error( "Failed to initialize queue manager" );
+			$bootstrapper?->shutdown();
 			return 1;
 		}
 
@@ -67,9 +110,12 @@ class WorkCommand extends Command
 		$sleep = (int) $this->input->getOption( 'sleep', '3' );
 		$maxJobs = (int) $this->input->getOption( 'max-jobs', '0' );
 		$timeout = (int) $this->input->getOption( 'timeout', '60' );
+		$memory = (int) $this->input->getOption( 'memory', '0' );
+		$maxTime = (int) $this->input->getOption( 'max-time', '0' );
 
 		// Display configuration
 		$this->output->info( "Configuration:" );
+		$this->output->info( "  Driver: " . ( new \ReflectionClass( $queueManager->getDriver() ) )->getShortName() );
 		$this->output->info( "  Queue(s): " . implode( ', ', $queues ) );
 		$this->output->info( "  Mode: " . ( $once ? "Single job" : "Daemon" ) );
 		$this->output->info( "  Sleep: {$sleep}s" );
@@ -79,14 +125,40 @@ class WorkCommand extends Command
 			$this->output->info( "  Max jobs: {$maxJobs}" );
 		}
 
-		$this->output->info( "  Timeout: {$timeout}s" );
+		if( $memory > 0 )
+		{
+			$this->output->info( "  Memory limit: {$memory}MB" );
+		}
+
+		if( $maxTime > 0 )
+		{
+			$this->output->info( "  Max time: {$maxTime}s" );
+		}
+
+		$this->output->info( "  Timeout: " . ( $timeout > 0 ? "{$timeout}s" : 'none' ) );
+
+		if( $timeout > 0 && !QueueManager::canEnforceTimeout() )
+		{
+			$this->output->warning( "  pcntl extension not available; timeouts will not be enforced" );
+		}
+
 		$this->output->info( "" );
+
+		$restartFile = RestartCommand::resolveRestartFile( $this->input->getOption( 'config' ) );
+
+		if( $restartFile !== null )
+		{
+			$this->output->info( "  Restart file: {$restartFile}" );
+		}
 
 		// Create worker
 		$worker = new Worker( $queueManager );
 		$worker->setSleep( $sleep )
 			->setMaxJobs( $maxJobs )
 			->setTimeout( $timeout )
+			->setMemoryLimit( $memory )
+			->setMaxTime( $maxTime )
+			->setRestartFile( $restartFile )
 			->setStopWhenEmpty( $stopWhenEmpty );
 
 		try
@@ -111,6 +183,10 @@ class WorkCommand extends Command
 			}
 
 			return 1;
+		}
+		finally
+		{
+			$bootstrapper?->shutdown();
 		}
 	}
 
@@ -138,7 +214,11 @@ class WorkCommand extends Command
 		$help .= "  # Process max 100 jobs then stop\n";
 		$help .= "  neuron jobs:work --max-jobs=100\n\n";
 		$help .= "  # Stop when queue is empty\n";
-		$help .= "  neuron jobs:work --stop-when-empty\n";
+		$help .= "  neuron jobs:work --stop-when-empty\n\n";
+		$help .= "  # Recycle the worker when it grows past 128MB or has run for an hour\n";
+		$help .= "  neuron jobs:work --memory=128 --max-time=3600\n\n";
+		$help .= "The worker boots the application named by queue.bootstrap in neuron.yaml\n";
+		$help .= "before processing, so jobs get the container, database and event listeners.\n";
 
 		return $help;
 	}

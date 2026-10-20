@@ -84,6 +84,98 @@ class WorkCommandTest extends TestCase
 		$this->assertArrayHasKey('sleep', $options);
 		$this->assertArrayHasKey('max-jobs', $options);
 		$this->assertArrayHasKey('timeout', $options);
+		$this->assertArrayHasKey('memory', $options);
+		$this->assertArrayHasKey('max-time', $options);
+		$this->assertArrayHasKey('config', $options);
+		$this->assertArrayHasKey('no-bootstrap', $options);
+	}
+
+	public function testExecuteBootsAndShutsDownApplication(): void
+	{
+		$bootstrapper = $this->createMock(\Neuron\Jobs\Bootstrap\WorkerBootstrapper::class);
+		$bootstrapper->expects($this->once())
+			->method('boot')
+			->with('worker', '/some/config')
+			->willReturn(new \Neuron\Jobs\Bootstrap\MinimalApplication('0.0.0'));
+		$bootstrapper->expects($this->once())->method('shutdown');
+
+		$command = new WorkCommand();
+		$command->configure();
+		$command->setBootstrapper($bootstrapper);
+		$input = new Input();
+		$input->setOption('once', true);
+		$input->setOption('config', '/some/config');
+		$output = new Output();
+		$this->injectInputOutput($command, $input, $output);
+
+		$this->assertEquals(0, $command->execute());
+	}
+
+	public function testExecuteContinuesWhenBootstrapReturnsNoApplication(): void
+	{
+		$bootstrapper = $this->createMock(\Neuron\Jobs\Bootstrap\WorkerBootstrapper::class);
+		$bootstrapper->method('boot')->willReturn(null);
+		$bootstrapper->expects($this->once())->method('shutdown');
+
+		$command = new WorkCommand();
+		$command->configure();
+		$command->setBootstrapper($bootstrapper);
+		$input = new Input();
+		$input->setOption('once', true);
+		$output = new Output();
+		$this->injectInputOutput($command, $input, $output);
+
+		$this->assertEquals(0, $command->execute());
+	}
+
+	public function testExecuteSkipsBootstrapWhenRequested(): void
+	{
+		$bootstrapper = $this->createMock(\Neuron\Jobs\Bootstrap\WorkerBootstrapper::class);
+		$bootstrapper->expects($this->never())->method('boot');
+		$bootstrapper->expects($this->never())->method('shutdown');
+
+		$command = new WorkCommand();
+		$command->configure();
+		$command->setBootstrapper($bootstrapper);
+		$input = new Input();
+		$input->setOption('once', true);
+		$input->setOption('no-bootstrap', true);
+		$output = new Output();
+		$this->injectInputOutput($command, $input, $output);
+
+		$this->assertEquals(0, $command->execute());
+	}
+
+	public function testExecutePassesTimeoutMemoryAndMaxTimeToWorker(): void
+	{
+		// The worker hands the timeout to processNextJob; the limits only
+		// show up in the configuration banner since the mock processes nothing.
+		$this->queueManager
+			->expects($this->once())
+			->method('processNextJob')
+			->with('default', 15)
+			->willReturn(false);
+
+		$command = new WorkCommand();
+		$command->configure();
+		$command->setBootstrapper($this->createMock(\Neuron\Jobs\Bootstrap\WorkerBootstrapper::class));
+		$input = new Input();
+		$input->setOption('once', true);
+		$input->setOption('queue', 'default');
+		$input->setOption('timeout', '15');
+		$input->setOption('memory', '256');
+		$input->setOption('max-time', '600');
+		$output = new Output();
+		$this->injectInputOutput($command, $input, $output);
+
+		ob_start();
+		$exitCode = $command->execute();
+		$banner = ob_get_clean();
+
+		$this->assertEquals(0, $exitCode);
+		$this->assertStringContainsString('Memory limit: 256MB', $banner);
+		$this->assertStringContainsString('Max time: 600s', $banner);
+		$this->assertStringContainsString('Timeout: 15s', $banner);
 	}
 
 	public function testExecuteWithDefaultOptions(): void

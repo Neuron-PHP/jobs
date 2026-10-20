@@ -282,4 +282,150 @@ class WorkerTest extends TestCase
 
 		$this->assertEquals(10, $this->worker->getJobsProcessed());
 	}
+
+	public function testMemoryLimitAndMaxTimeDefaultToUnlimited(): void
+	{
+		$this->assertEquals(0, $this->worker->getMemoryLimit());
+		$this->assertEquals(0, $this->worker->getMaxTime());
+	}
+
+	public function testSetMemoryLimitAndMaxTimeAreFluent(): void
+	{
+		$result = $this->worker->setMemoryLimit(128)->setMaxTime(3600);
+
+		$this->assertSame($this->worker, $result);
+		$this->assertEquals(128, $this->worker->getMemoryLimit());
+		$this->assertEquals(3600, $this->worker->getMaxTime());
+	}
+
+	public function testRunPassesTimeoutToQueueManager(): void
+	{
+		$this->queueManager
+			->expects($this->once())
+			->method('processNextJob')
+			->with('default', 45)
+			->willReturn(false);
+
+		$this->worker->setTimeout(45)->run('default', true);
+	}
+
+	public function testRunStopsWhenMemoryLimitExceeded(): void
+	{
+		// 1MB is always below what PHPUnit itself is using, so the first job
+		// pushes the worker over the limit and it must exit without sleeping.
+		$this->queueManager
+			->method('processNextJob')
+			->willReturn(true);
+
+		$this->worker->setMemoryLimit(1)->setMaxJobs(0)->setSleep(0);
+
+		$this->worker->run('default');
+
+		$this->assertEquals(1, $this->worker->getJobsProcessed());
+	}
+
+	public function testRunStopsWhenMemoryLimitExceededWhileIdle(): void
+	{
+		$this->queueManager
+			->method('processNextJob')
+			->willReturn(false);
+
+		// No --once, no stop-when-empty: only the memory limit ends the loop.
+		$this->worker->setMemoryLimit(1)->setSleep(0);
+
+		$this->worker->run('default');
+
+		$this->assertEquals(0, $this->worker->getJobsProcessed());
+	}
+
+	public function testRestartFileDefaultsToNullAndIsFluent(): void
+	{
+		$this->assertNull( $this->worker->getRestartFile() );
+		$this->assertSame( $this->worker, $this->worker->setRestartFile( '/tmp/x' ) );
+		$this->assertEquals( '/tmp/x', $this->worker->getRestartFile() );
+		$this->worker->setRestartFile( '' );
+		$this->assertNull( $this->worker->getRestartFile() );
+	}
+
+	public function testDefaultRestartFileLivesUnderStorage(): void
+	{
+		$this->assertEquals( '/srv/site/storage/jobs.restart', Worker::defaultRestartFile( '/srv/site/' ) );
+	}
+
+	public function testRunStopsWhenRestartFileIsTouchedAfterStart(): void
+	{
+		$file = sys_get_temp_dir() . '/worker_restart_' . uniqid();
+
+		$calls = 0;
+
+		$this->queueManager
+			->method('processNextJob')
+			->willReturnCallback(function() use (&$calls, $file) {
+				$calls++;
+				if( $calls === 2 )
+				{
+					// jobs:restart runs while the worker is busy; make the
+					// mtime strictly newer than the worker's start second.
+					touch( $file, time() + 2 );
+				}
+				return true;
+			});
+
+		$this->worker->setRestartFile( $file )->setSleep( 0 );
+
+		try
+		{
+			$this->worker->run( 'default' );
+			$this->assertEquals( 2, $this->worker->getJobsProcessed() );
+		}
+		finally
+		{
+			@unlink( $file );
+		}
+	}
+
+	public function testRestartFileOlderThanStartIsIgnored(): void
+	{
+		$file = sys_get_temp_dir() . '/worker_restart_old_' . uniqid();
+		touch( $file, time() - 100 );
+
+		$this->queueManager
+			->method('processNextJob')
+			->willReturn(true);
+
+		$this->worker->setRestartFile( $file )->setMaxJobs( 3 )->setSleep( 0 );
+
+		try
+		{
+			$this->worker->run( 'default' );
+			$this->assertEquals( 3, $this->worker->getJobsProcessed(), 'An old request must not stop a worker started later' );
+		}
+		finally
+		{
+			@unlink( $file );
+		}
+	}
+
+	public function testRunStopsWhenMaxTimeExceeded(): void
+	{
+		$calls = 0;
+
+		$this->queueManager
+			->method('processNextJob')
+			->willReturnCallback(function() use (&$calls) {
+				$calls++;
+				if( $calls === 1 )
+				{
+					// Push the clock past the one-second budget after the first job.
+					sleep(2);
+				}
+				return true;
+			});
+
+		$this->worker->setMaxTime(1)->setSleep(0);
+
+		$this->worker->run('default');
+
+		$this->assertEquals(1, $this->worker->getJobsProcessed());
+	}
 }

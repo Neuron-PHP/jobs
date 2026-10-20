@@ -221,6 +221,33 @@ class QueuedJobTest extends TestCase
 		$this->assertInstanceOf(TestQueueJob::class, $job);
 	}
 
+	public function testGetJobUsesContainerWhenProvided(): void
+	{
+		$expected = new TestQueueJob();
+
+		$container = $this->createMock(\Neuron\Patterns\Container\IContainer::class);
+		$container->expects($this->once())
+			->method('make')
+			->with(TestQueueJob::class)
+			->willReturn($expected);
+
+		$queuedJob = new QueuedJob('job_container', 'default', TestQueueJob::class);
+
+		$this->assertSame($expected, $queuedJob->getJob($container));
+	}
+
+	public function testGetJobRejectsNonJobFromContainer(): void
+	{
+		$this->expectException(\RuntimeException::class);
+		$this->expectExceptionMessage('Job class must implement IJob');
+
+		$container = $this->createMock(\Neuron\Patterns\Container\IContainer::class);
+		$container->method('make')->willReturn(new InvalidJob());
+
+		$queuedJob = new QueuedJob('job_container_bad', 'default', TestQueueJob::class);
+		$queuedJob->getJob($container);
+	}
+
 	public function testGetJobThrowsExceptionForNonExistentClass(): void
 	{
 		$this->expectException(\RuntimeException::class);

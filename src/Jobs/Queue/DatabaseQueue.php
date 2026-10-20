@@ -2,6 +2,7 @@
 
 namespace Neuron\Jobs\Queue;
 
+use Neuron\Data\Database\ConnectionFactory;
 use Neuron\Jobs\IJob;
 use Neuron\Log\Log;
 
@@ -13,7 +14,7 @@ use Neuron\Log\Log;
  *
  * @package Neuron\Jobs\Queue
  */
-class DatabaseQueue implements IQueue
+class DatabaseQueue implements IQueue, IQueueStats
 {
 	private \PDO $_connection;
 	private string $_jobsTable = 'jobs';
@@ -21,54 +22,67 @@ class DatabaseQueue implements IQueue
 	private int $_retryAfter = 90; // seconds
 
 	/**
-	 * @param array $config Database configuration
+	 * Maximum number of times pop() re-queries after losing a reservation race
+	 * to another worker before giving up for this poll.
 	 */
-	public function __construct( array $config )
+	private const MAX_POP_ATTEMPTS = 5;
+
+	/**
+	 * @param array $config Database configuration (see Neuron\Data\Database\ConnectionFactory)
+	 *        plus optional `jobs_table`, `failed_jobs_table` and `retry_after`.
+	 * @param \PDO|null $connection Existing connection to reuse instead of opening one
+	 */
+	public function __construct( array $config, ?\PDO $connection = null )
 	{
-		$this->_connection = $this->createConnection( $config );
+		$this->_connection = $connection ?? $this->createConnection( $config );
 		$this->_jobsTable = $config['jobs_table'] ?? 'jobs';
 		$this->_failedJobsTable = $config['failed_jobs_table'] ?? 'failed_jobs';
-		$this->_retryAfter = $config['retry_after'] ?? 90;
+		$this->_retryAfter = (int)( $config['retry_after'] ?? 90 );
 	}
 
 	/**
-	 * Create PDO connection from config
+	 * The underlying PDO connection.
+	 *
+	 * @return \PDO
+	 */
+	public function getConnection(): \PDO
+	{
+		return $this->_connection;
+	}
+
+	/**
+	 * Seconds after which a reserved job is considered abandoned and released.
+	 *
+	 * @return int
+	 */
+	public function getRetryAfter(): int
+	{
+		return $this->_retryAfter;
+	}
+
+	/**
+	 * Create PDO connection from config.
+	 *
+	 * Delegates to the framework-wide factory so the queue honours `url`
+	 * configuration and receives the same adapter initialisation (SQLite WAL
+	 * and busy timeout, UTC sessions) as the application's own connections.
 	 *
 	 * @param array $config
 	 * @return \PDO
+	 * @throws \RuntimeException if the configuration is invalid
 	 */
 	private function createConnection( array $config ): \PDO
 	{
-		$adapter = $config['adapter'] ?? 'mysql';
+		unset( $config['jobs_table'], $config['failed_jobs_table'], $config['retry_after'] );
 
-		$dsn = match( $adapter )
+		try
 		{
-			'sqlite' => 'sqlite:' . $config['name'],
-			'mysql' => sprintf(
-				'mysql:host=%s;port=%d;dbname=%s;charset=%s',
-				$config['host'] ?? 'localhost',
-				$config['port'] ?? 3306,
-				$config['name'],
-				$config['charset'] ?? 'utf8mb4'
-			),
-			'pgsql' => sprintf(
-				'pgsql:host=%s;port=%d;dbname=%s',
-				$config['host'] ?? 'localhost',
-				$config['port'] ?? 5432,
-				$config['name']
-			),
-			default => throw new \RuntimeException( "Unsupported database adapter: {$adapter}" )
-		};
-
-		$options = [
-			\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-			\PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
-		];
-
-		$username = $config['user'] ?? null;
-		$password = $config['pass'] ?? null;
-
-		return new \PDO( $dsn, $username, $password, $options );
+			return ConnectionFactory::createFromConfig( $config );
+		}
+		catch( \InvalidArgumentException $e )
+		{
+			throw new \RuntimeException( $e->getMessage(), 0, $e );
+		}
 	}
 
 	/**
@@ -106,52 +120,109 @@ class DatabaseQueue implements IQueue
 	{
 		$this->releaseExpiredJobs( $queue );
 
-		// Get the next available job
-		$sql = "SELECT * FROM {$this->_jobsTable}
+		if( $this->supportsSkipLocked() )
+		{
+			return $this->popWithRowLock( $queue );
+		}
+
+		return $this->popWithCompareAndSet( $queue );
+	}
+
+	/**
+	 * Whether the connected database supports `FOR UPDATE SKIP LOCKED`.
+	 *
+	 * MySQL 8+, MariaDB 10.6+ and PostgreSQL 9.5+ do. SQLite has no row
+	 * locks, and older MySQL rejects the syntax; those use compare-and-set.
+	 *
+	 * @return bool
+	 */
+	private function supportsSkipLocked(): bool
+	{
+		$driver = $this->_connection->getAttribute( \PDO::ATTR_DRIVER_NAME );
+
+		if( $driver === 'pgsql' )
+		{
+			return true;
+		}
+
+		if( $driver !== 'mysql' )
+		{
+			return false;
+		}
+
+		$version = (string)$this->_connection->getAttribute( \PDO::ATTR_SERVER_VERSION );
+
+		if( stripos( $version, 'mariadb' ) !== false )
+		{
+			// "5.5.5-10.6.12-MariaDB..." or "10.6.12-MariaDB"
+			preg_match( '/(\d+\.\d+)\.\d+-MariaDB/i', $version, $m );
+			return isset( $m[1] ) && version_compare( $m[1], '10.6', '>=' );
+		}
+
+		return version_compare( $version, '8.0', '>=' );
+	}
+
+	/**
+	 * Reserve the next job under a row lock, skipping rows other workers hold.
+	 *
+	 * With many workers on one queue this avoids the SELECT/UPDATE race
+	 * entirely: each worker locks a different row, so there is nothing to
+	 * retry and no wasted round trips.
+	 *
+	 * @param string $queue
+	 * @return QueuedJob|null
+	 */
+	private function popWithRowLock( string $queue ): ?QueuedJob
+	{
+		$selectSql = "SELECT * FROM {$this->_jobsTable}
 			WHERE queue = :queue
 			AND available_at <= :now
 			AND reserved_at IS NULL
 			ORDER BY available_at ASC
-			LIMIT 1";
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED";
 
-		$stmt = $this->_connection->prepare( $sql );
-		$stmt->execute([
-			'queue' => $queue,
-			'now' => time()
-		]);
-
-		$row = $stmt->fetch();
-
-		if( !$row )
-		{
-			return null;
-		}
-
-		// Reserve the job
 		$updateSql = "UPDATE {$this->_jobsTable}
 			SET reserved_at = :reserved_at, attempts = attempts + 1
-			WHERE id = :id AND reserved_at IS NULL";
+			WHERE id = :id";
 
-		$updateStmt = $this->_connection->prepare( $updateSql );
-		$reservedAt = time();
+		$this->_connection->beginTransaction();
 
-		$updateStmt->execute([
-			'reserved_at' => $reservedAt,
-			'id' => $row['id']
-		]);
-
-		// If update didn't affect any rows, another worker got it
-		if( $updateStmt->rowCount() === 0 )
+		try
 		{
-			return $this->pop( $queue ); // Try again
+			$selectStmt = $this->_connection->prepare( $selectSql );
+			$selectStmt->execute([ 'queue' => $queue, 'now' => time() ]);
+
+			$row = $selectStmt->fetch();
+
+			if( !$row )
+			{
+				$this->_connection->commit();
+				return null;
+			}
+
+			$reservedAt = time();
+
+			$updateStmt = $this->_connection->prepare( $updateSql );
+			$updateStmt->execute([ 'reserved_at' => $reservedAt, 'id' => $row['id'] ]);
+
+			$this->_connection->commit();
+		}
+		catch( \Throwable $e )
+		{
+			if( $this->_connection->inTransaction() )
+			{
+				$this->_connection->rollBack();
+			}
+
+			throw $e;
 		}
 
-		// Create QueuedJob from row
 		$job = QueuedJob::fromPayload(
 			$row['id'],
 			$row['queue'],
 			$row['payload'],
-			(int)$row['attempts'] + 1, // Increment was done in UPDATE
+			(int)$row['attempts'] + 1,
 			$reservedAt,
 			(int)$row['available_at'],
 			(int)$row['created_at']
@@ -160,6 +231,77 @@ class DatabaseQueue implements IQueue
 		Log::debug( "Job popped from queue: {$job->getId()} ({$job->getJobClass()})" );
 
 		return $job;
+	}
+
+	/**
+	 * Reserve the next job with an optimistic compare-and-set on reserved_at.
+	 *
+	 * @param string $queue
+	 * @return QueuedJob|null
+	 */
+	private function popWithCompareAndSet( string $queue ): ?QueuedJob
+	{
+		$selectSql = "SELECT * FROM {$this->_jobsTable}
+			WHERE queue = :queue
+			AND available_at <= :now
+			AND reserved_at IS NULL
+			ORDER BY available_at ASC
+			LIMIT 1";
+
+		// Reservation is a compare-and-set on reserved_at IS NULL, so two
+		// workers selecting the same row cannot both reserve it.
+		$updateSql = "UPDATE {$this->_jobsTable}
+			SET reserved_at = :reserved_at, attempts = attempts + 1
+			WHERE id = :id AND reserved_at IS NULL";
+
+		$selectStmt = $this->_connection->prepare( $selectSql );
+		$updateStmt = $this->_connection->prepare( $updateSql );
+
+		for( $attempt = 0; $attempt < self::MAX_POP_ATTEMPTS; $attempt++ )
+		{
+			$selectStmt->execute([
+				'queue' => $queue,
+				'now' => time()
+			]);
+
+			$row = $selectStmt->fetch();
+
+			if( !$row )
+			{
+				return null;
+			}
+
+			$reservedAt = time();
+
+			$updateStmt->execute([
+				'reserved_at' => $reservedAt,
+				'id' => $row['id']
+			]);
+
+			// Another worker reserved it between our SELECT and UPDATE.
+			if( $updateStmt->rowCount() === 0 )
+			{
+				continue;
+			}
+
+			$job = QueuedJob::fromPayload(
+				$row['id'],
+				$row['queue'],
+				$row['payload'],
+				(int)$row['attempts'] + 1, // Increment was done in UPDATE
+				$reservedAt,
+				(int)$row['available_at'],
+				(int)$row['created_at']
+			);
+
+			Log::debug( "Job popped from queue: {$job->getId()} ({$job->getJobClass()})" );
+
+			return $job;
+		}
+
+		Log::debug( "Lost " . self::MAX_POP_ATTEMPTS . " reservation races on queue '{$queue}'; yielding until next poll" );
+
+		return null;
 	}
 
 	/**
@@ -277,6 +419,36 @@ class DatabaseQueue implements IQueue
 		$row = $stmt->fetch();
 
 		return (int)( $row['count'] ?? 0 );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function getStats( string $queue = 'default' ): array
+	{
+		$now = time();
+
+		$sql = "SELECT
+				SUM(CASE WHEN reserved_at IS NULL AND available_at <= :now1 THEN 1 ELSE 0 END) AS pending,
+				SUM(CASE WHEN reserved_at IS NULL AND available_at > :now2 THEN 1 ELSE 0 END) AS delayed,
+				SUM(CASE WHEN reserved_at IS NOT NULL THEN 1 ELSE 0 END) AS reserved,
+				MIN(CASE WHEN reserved_at IS NULL AND available_at <= :now3 THEN available_at END) AS oldest_available_at
+			FROM {$this->_jobsTable}
+			WHERE queue = :queue";
+
+		$stmt = $this->_connection->prepare( $sql );
+		$stmt->execute([ 'queue' => $queue, 'now1' => $now, 'now2' => $now, 'now3' => $now ]);
+
+		$row = $stmt->fetch() ?: [];
+
+		$oldest = $row['oldest_available_at'] ?? null;
+
+		return [
+			'pending' => (int)( $row['pending'] ?? 0 ),
+			'delayed' => (int)( $row['delayed'] ?? 0 ),
+			'reserved' => (int)( $row['reserved'] ?? 0 ),
+			'oldest_pending_age' => $oldest === null ? null : max( 0, $now - (int)$oldest ),
+		];
 	}
 
 	/**

@@ -72,6 +72,104 @@ class RunCommandTest extends TestCase
 		$this->assertArrayHasKey( 'worker-timeout', $options );
 		$this->assertArrayHasKey( 'config', $options );
 		$this->assertArrayHasKey( 'max-jobs', $options );
+		$this->assertArrayHasKey( 'max-restarts', $options );
+		$this->assertArrayHasKey( 'max-restart-delay', $options );
+		$this->assertArrayHasKey( 'no-restart', $options );
+	}
+
+	/**
+	 * Invoke the private scheduleRestart() and return [result, pendingRestarts, failures].
+	 */
+	private function scheduleRestart( string $name, int $exitCode ): array
+	{
+		$reflection = new \ReflectionClass( $this->_command );
+
+		$result = $reflection->getMethod( 'scheduleRestart' )->invoke( $this->_command, $name, $exitCode );
+
+		return [
+			$result,
+			$reflection->getProperty( 'pendingRestarts' )->getValue( $this->_command ),
+			$reflection->getProperty( 'failures' )->getValue( $this->_command ),
+		];
+	}
+
+	public function testCleanExitRestartsImmediately(): void
+	{
+		$this->_command->configure();
+
+		ob_start();
+		[ $result, $pending, $failures ] = $this->scheduleRestart( 'worker', 0 );
+		ob_end_clean();
+
+		$this->assertTrue( $result );
+		$this->assertLessThanOrEqual( time(), $pending['worker'] );
+		$this->assertSame( 0, $failures['worker'] );
+	}
+
+	public function testCrashesBackOffExponentiallyUpToTheCap(): void
+	{
+		$this->_command->configure();
+		$this->_input->setOption( 'max-restart-delay', '5' );
+
+		ob_start();
+		[ , $p1 ] = $this->scheduleRestart( 'worker', 1 );
+		[ , $p2 ] = $this->scheduleRestart( 'worker', 1 );
+		[ , $p3 ] = $this->scheduleRestart( 'worker', 1 );
+		[ , $p4 ] = $this->scheduleRestart( 'worker', 1 );
+		ob_end_clean();
+
+		$now = time();
+		// 1, 2, 4, then capped at 5 (allow a second of clock drift).
+		$this->assertEqualsWithDelta( 1, $p1['worker'] - $now, 1 );
+		$this->assertEqualsWithDelta( 2, $p2['worker'] - $now, 1 );
+		$this->assertEqualsWithDelta( 4, $p3['worker'] - $now, 1 );
+		$this->assertEqualsWithDelta( 5, $p4['worker'] - $now, 1 );
+	}
+
+	public function testGivesUpAfterMaxRestarts(): void
+	{
+		$this->_command->configure();
+		$this->_input->setOption( 'max-restarts', '2' );
+
+		ob_start();
+		[ $r1 ] = $this->scheduleRestart( 'scheduler', 1 );
+		[ $r2 ] = $this->scheduleRestart( 'scheduler', 1 );
+		[ $r3 ] = $this->scheduleRestart( 'scheduler', 1 );
+		ob_end_clean();
+
+		$this->assertTrue( $r1 );
+		$this->assertTrue( $r2 );
+		$this->assertFalse( $r3, 'Third consecutive crash exceeds --max-restarts=2' );
+	}
+
+	public function testNoRestartOptionShutsDown(): void
+	{
+		$this->_command->configure();
+		$this->_input->setOption( 'no-restart', true );
+
+		ob_start();
+		[ $result, $pending ] = $this->scheduleRestart( 'worker', 0 );
+		ob_end_clean();
+
+		$this->assertFalse( $result );
+		$this->assertArrayNotHasKey( 'worker', $pending );
+	}
+
+	public function testStableUptimeResetsFailureCount(): void
+	{
+		$this->_command->configure();
+
+		$reflection = new \ReflectionClass( $this->_command );
+		$reflection->getProperty( 'failures' )->setValue( $this->_command, [ 'worker' => 5 ] );
+		// Started long ago: the child was stable before this crash.
+		$reflection->getProperty( 'startedAt' )->setValue( $this->_command, [ 'worker' => time() - 3600 ] );
+
+		ob_start();
+		[ , $pending, $failures ] = $this->scheduleRestart( 'worker', 1 );
+		ob_end_clean();
+
+		$this->assertSame( 1, $failures['worker'] );
+		$this->assertEqualsWithDelta( 1, $pending['worker'] - time(), 1 );
 	}
 
 	/**

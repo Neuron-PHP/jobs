@@ -18,7 +18,7 @@ class ProviderTest extends TestCase
 		$registry = $this->createMock(Registry::class);
 
 		// Expect register() to be called for each command
-		$registry->expects($this->exactly(7))
+		$registry->expects($this->exactly(9))
 			->method('register')
 			->withConsecutive(
 				['jobs:schedule', 'Neuron\\Jobs\\Cli\\Commands\\ScheduleCommand'],
@@ -27,17 +27,19 @@ class ProviderTest extends TestCase
 				['jobs:retry', 'Neuron\\Jobs\\Cli\\Commands\\RetryCommand'],
 				['jobs:flush', 'Neuron\\Jobs\\Cli\\Commands\\FlushCommand'],
 				['jobs:forget', 'Neuron\\Jobs\\Cli\\Commands\\ForgetCommand'],
-				['jobs:stats', 'Neuron\\Jobs\\Cli\\Commands\\StatsCommand']
+				['jobs:stats', 'Neuron\\Jobs\\Cli\\Commands\\StatsCommand'],
+				['jobs:restart', 'Neuron\\Jobs\\Cli\\Commands\\RestartCommand'],
+				['jobs:run', 'Neuron\\Jobs\\Cli\\Commands\\RunCommand']
 			);
 
 		Provider::register($registry);
 	}
 
-	public function testRegisterCallsRegistrySevenTimes(): void
+	public function testRegisterCallsRegistryNineTimes(): void
 	{
 		$registry = $this->createMock(Registry::class);
 
-		$registry->expects($this->exactly(7))
+		$registry->expects($this->exactly(9))
 			->method('register');
 
 		Provider::register($registry);
@@ -59,5 +61,7 @@ class ProviderTest extends TestCase
 		$this->assertTrue($registry->has('jobs:flush'));
 		$this->assertTrue($registry->has('jobs:forget'));
 		$this->assertTrue($registry->has('jobs:stats'));
+		$this->assertTrue($registry->has('jobs:restart'));
+		$this->assertTrue($registry->has('jobs:run'));
 	}
 }
