@@ -1,4 +1,4 @@
-## 0.2.22
+## 0.2.22 2026-10-20
 
 * **Behaviour change:** a job whose `run()` returns `false` is now treated as
   failed. `IJob` has always documented the return value as the job's
