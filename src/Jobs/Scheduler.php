@@ -421,23 +421,18 @@ class Scheduler extends CommandLineBase
 					$job['queue'] ?? null
 				) );
 
-				// If queue is specified, dispatch to queue instead of running directly
-				if( isset( $job[ 'queue'] ) )
+				// One job's failure must not take the scheduler down or skip the
+				// jobs due after it: it is reported, and the next scheduled run is
+				// the retry. Covers a directly-run job that throws, and a dispatch
+				// that throws (queue store down, or the sync driver surfacing the
+				// job's own exception).
+				try
 				{
-					Log::debug( "Dispatching job to queue: {$job['name']} -> {$job['queue']}" );
-
-					dispatch(
-						$job[ 'job' ],
-						$job[ 'args' ],
-						$job[ 'queue' ]
-					);
+					$this->runOrDispatch( $job );
 				}
-				else
+				catch( \Throwable $e )
 				{
-					// Run directly in scheduler process (current behavior)
-					Log::debug( "Running job directly: {$job['name']}" );
-
-					$job[ 'job' ]->run( $job[ 'args' ] );
+					Log::error( "Job {$job['name']} failed: " . $e->getMessage() );
 				}
 
 				$count++;
@@ -445,6 +440,34 @@ class Scheduler extends CommandLineBase
 		}
 
 		return $count;
+	}
+
+	/**
+	 * Hand a due job to its queue, or run it in this process when it has none.
+	 *
+	 * @param array $job Schedule entry: job, args, name and optional queue
+	 * @return void
+	 * @throws \Throwable Whatever the dispatch or the job itself throws
+	 */
+	private function runOrDispatch( array $job ): void
+	{
+		if( isset( $job[ 'queue' ] ) )
+		{
+			Log::debug( "Dispatching job to queue: {$job['name']} -> {$job['queue']}" );
+
+			dispatch( $job[ 'job' ], $job[ 'args' ], $job[ 'queue' ] );
+
+			return;
+		}
+
+		Log::debug( "Running job directly: {$job['name']}" );
+
+		// No retry here - the next scheduled run is the retry - so a false
+		// return (failure, per IJob) is reported and that is all.
+		if( $job[ 'job' ]->run( $job[ 'args' ] ) === false )
+		{
+			Log::error( "Job {$job['name']} reported failure (run() returned false)." );
+		}
 	}
 
 	/**

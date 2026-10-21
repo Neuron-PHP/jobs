@@ -2,6 +2,7 @@
 
 namespace Neuron\Jobs\Queue;
 
+use Neuron\Jobs\Exceptions\JobReportedFailureException;
 use Neuron\Jobs\IJob;
 use Neuron\Log\Log;
 
@@ -27,7 +28,12 @@ class SyncQueue implements IQueue
 
 		try
 		{
-			$job->run( $args );
+			// false is the job reporting failure (see IJob); treat it as a throw.
+			if( $job->run( $args ) === false )
+			{
+				throw new JobReportedFailureException( get_class( $job ) );
+			}
+
 			Log::info( "Sync job completed: " . get_class( $job ) );
 		}
 		catch( \Throwable $e )

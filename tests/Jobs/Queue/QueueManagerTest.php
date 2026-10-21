@@ -46,6 +46,32 @@ class FailingManagerJob implements IJob
 	}
 }
 
+class ReturnsFalseManagerJob implements IJob
+{
+	public function getName(): string
+	{
+		return 'ReturnsFalseManagerJob';
+	}
+
+	public function run( array $argv = [] ): mixed
+	{
+		return false;
+	}
+}
+
+class ReturnsNullManagerJob implements IJob
+{
+	public function getName(): string
+	{
+		return 'ReturnsNullManagerJob';
+	}
+
+	public function run( array $argv = [] ): mixed
+	{
+		return null;
+	}
+}
+
 /**
  * Job that blocks for longer than any test timeout.
  */
@@ -764,6 +790,79 @@ class QueueManagerTest extends TestCase
 			// Clean up
 			$this->recursiveRemoveDirectory($tempPath);
 		}
+	}
+
+	public function testRunReturningFalseIsAFailureAndIsRetried(): void
+	{
+		$tempPath = sys_get_temp_dir() . '/queue_manager_false_' . uniqid();
+		mkdir( $tempPath );
+
+		try
+		{
+			$manager = new QueueManager( null, [
+				'driver' => 'file',
+				'file' => [ 'path' => $tempPath ],
+				'max_attempts' => 2,
+				'backoff' => 0,
+				'retry_after' => 0
+			] );
+
+			$manager->dispatch( new ReturnsFalseManagerJob(), [], 'default', 0 );
+
+			// First attempt: failure, released for retry rather than deleted.
+			$this->assertTrue( $manager->processNextJob( 'default' ) );
+			$this->assertSame( 1, $manager->size( 'default' ) );
+			$this->assertCount( 0, $manager->getFailedJobs() );
+
+			// Second attempt: max attempts reached, moved to failed storage.
+			$this->assertTrue( $manager->processNextJob( 'default' ) );
+			$this->assertSame( 0, $manager->size( 'default' ) );
+
+			$failed = $manager->getFailedJobs();
+			$this->assertCount( 1, $failed );
+			$this->assertStringContainsString( 'reported failure (run() returned false)', $failed[0]['exception'] );
+		}
+		finally
+		{
+			$this->recursiveRemoveDirectory( $tempPath );
+		}
+	}
+
+	public function testRunReturningNullIsASuccess(): void
+	{
+		$tempPath = sys_get_temp_dir() . '/queue_manager_null_' . uniqid();
+		mkdir( $tempPath );
+
+		try
+		{
+			$manager = new QueueManager( null, [
+				'driver' => 'file',
+				'file' => [ 'path' => $tempPath ],
+				'max_attempts' => 2,
+				'backoff' => 0,
+				'retry_after' => 0
+			] );
+
+			$manager->dispatch( new ReturnsNullManagerJob(), [], 'default', 0 );
+
+			$this->assertTrue( $manager->processNextJob( 'default' ) );
+			$this->assertSame( 0, $manager->size( 'default' ) );
+			$this->assertCount( 0, $manager->getFailedJobs() );
+		}
+		finally
+		{
+			$this->recursiveRemoveDirectory( $tempPath );
+		}
+	}
+
+	public function testSyncDriverTreatsFalseAsFailure(): void
+	{
+		$manager = new QueueManager( null, [ 'driver' => 'sync' ] );
+
+		$this->expectException( \Neuron\Jobs\Exceptions\JobReportedFailureException::class );
+		$this->expectExceptionMessage( 'ReturnsFalseManagerJob reported failure' );
+
+		$manager->dispatch( new ReturnsFalseManagerJob() );
 	}
 
 	public function testBackoffCalculation(): void
