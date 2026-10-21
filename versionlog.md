@@ -1,3 +1,5 @@
+## 0.2.23
+
 ## 0.2.22 2026-10-20
 
 * **Behaviour change:** a job whose `run()` returns `false` is now treated as
