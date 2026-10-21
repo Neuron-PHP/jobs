@@ -45,8 +45,8 @@ class Worker
 	{
 		// SIGTERM, SIGINT and, when no terminal is attached, SIGWINCH - the
 		// stop signal of the php:*-apache Docker image. See StopSignals.
-		StopSignals::register( function() {
-			$this->stop();
+		StopSignals::register( function( int $signal ) {
+			$this->stop( $signal );
 		} );
 	}
 
@@ -241,11 +241,12 @@ class Worker
 	/**
 	 * Stop the worker gracefully
 	 *
+	 * @param int|null $signal The signal that asked, when called from a handler
 	 * @return void
 	 */
-	public function stop(): void
+	public function stop( ?int $signal = null ): void
 	{
-		Log::info( "Worker received stop signal, shutting down gracefully..." );
+		Log::info( "Worker received " . StopSignals::name( $signal ) . ", shutting down gracefully..." );
 		$this->_shouldQuit = true;
 	}
 
