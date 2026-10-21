@@ -3,6 +3,7 @@
 namespace Neuron\Jobs\Queue;
 
 use Neuron\Core\Registry\RegistryKeys;
+use Neuron\Jobs\Exceptions\JobReportedFailureException;
 use Neuron\Jobs\Exceptions\JobTimeoutException;
 use Neuron\Jobs\IJob;
 use Neuron\Data\Settings\Source\ISettingSource;
@@ -291,11 +292,18 @@ class QueueManager
 
 			try
 			{
-				$job->run( $queuedJob->getArguments() );
+				$result = $job->run( $queuedJob->getArguments() );
 			}
 			finally
 			{
 				$this->disarmTimeout();
+			}
+
+			// IJob::run() returns the job's success/failure status: false is a
+			// failure and is handled exactly like a thrown exception.
+			if( $result === false )
+			{
+				throw new JobReportedFailureException( $queuedJob->getJobClass() );
 			}
 
 			$executionTime = microtime( true ) - $startTime;

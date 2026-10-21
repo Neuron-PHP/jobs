@@ -497,6 +497,13 @@ implement it reports pending only.
 
 ### Managing Failed Jobs
 
+A job fails when `run()` throws, or when it returns `false`: `IJob` defines the
+return value as the job's success/failure status. Both go through the same
+path - retry with backoff up to `max_attempts` (or the job's own
+`getMaxAttempts()`), then failed-job storage and the `failed()` hook. Any other
+return value, including `null`, is success, so return `null` rather than
+`false` when a job simply had nothing to do.
+
 #### View Failed Jobs
 
 ```bash

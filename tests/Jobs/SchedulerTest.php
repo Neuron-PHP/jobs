@@ -328,6 +328,51 @@ class SchedulerTest extends TestCase
 	/**
 	 * Two polls in the same minute run a job once.
 	 */
+	/**
+	 * A directly-run job that throws is reported, and the scheduler carries on
+	 * with the jobs due after it rather than dying.
+	 */
+	public function testAThrowingInlineJobDoesNotStopTheSchedulerOrTheJobsAfterIt()
+	{
+		$Thrower = new class implements IJob {
+			public int $Runs = 0;
+			public function getName(): string { return 'thrower'; }
+			public function run( array $argv = [] ): mixed
+			{
+				$this->Runs++;
+				throw new \RuntimeException( 'boom' );
+			}
+		};
+		$After = new TestJob();
+
+		$this->App->addJob( 'thrower', '* * * * *', $Thrower );
+		$this->App->addJob( 'after', '* * * * *', $After );
+
+		$this->assertSame( 2, $this->pollAt( '2026-10-19 10:15:01' ) );
+		$this->assertSame( 1, $Thrower->Runs );
+		$this->assertSame( 1, $After->Runs );
+
+		// And it is tried again at the next scheduled time.
+		$this->pollAt( '2026-10-19 10:16:01' );
+		$this->assertSame( 2, $Thrower->Runs );
+	}
+
+	/**
+	 * A directly-run job returning false (failure, per IJob) is reported and
+	 * the poll completes normally.
+	 */
+	public function testAnInlineJobReturningFalseIsReportedNotFatal()
+	{
+		$Failing = new class implements IJob {
+			public function getName(): string { return 'failing'; }
+			public function run( array $argv = [] ): mixed { return false; }
+		};
+
+		$this->App->addJob( 'failing', '* * * * *', $Failing );
+
+		$this->assertSame( 1, $this->pollAt( '2026-10-19 10:15:01' ) );
+	}
+
 	public function testAJobRunsOncePerScheduledMinute()
 	{
 		$Job = new TestJob();

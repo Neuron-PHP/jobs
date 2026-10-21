@@ -1,3 +1,22 @@
+## 0.2.22 2026-10-20
+
+* **Behaviour change:** a job whose `run()` returns `false` is now treated as
+  failed. `IJob` has always documented the return value as the job's
+  success/failure status, but the worker ignored it and logged "Job
+  completed". A `false` return now goes through the same path as a thrown
+  exception (`Exceptions\JobReportedFailureException`): retry with backoff,
+  then failed-job storage and the `failed()` hook. The sync driver throws it;
+  the scheduler logs an error for a directly-run job. Any other return value,
+  including `null`, is success. Jobs returning `false` to mean "nothing to
+  do" should return `null` instead.
+* A scheduled job that throws no longer takes the scheduler down. Jobs run
+  directly in the scheduler process (no `queue:` in `schedule.yaml`) were
+  unguarded, so one exception ended the scheduler and every job due after it
+  in that poll was skipped. The failure is now logged, the remaining due jobs
+  run, and the job is tried again at its next scheduled time. The same guard
+  covers a dispatch that throws (queue store unavailable, or the sync driver
+  surfacing the job's own exception).
+
 ## 0.2.21 2026-10-20
 
 ## 0.2.20 2026-10-20
