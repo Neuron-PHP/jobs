@@ -42,7 +42,7 @@ use Neuron\Log\Log;
  *
  * @package Neuron\Jobs\Queue
  */
-class RedisQueue implements IQueue, IQueueStats
+class RedisQueue implements IQueue, IQueueStats, IQueueInspector
 {
 	private \Redis $_redis;
 	private string $_prefix;
@@ -470,6 +470,220 @@ LUA;
 		$this->_redis->exec();
 
 		return count( $ids );
+	}
+
+	/**
+	 * @inheritDoc
+	 *
+	 * Pending is what size() counts: the ready list in worker order, then
+	 * delayed ids whose time has come and reservations that have expired,
+	 * both of which the next pop() moves to the ready list.
+	 */
+	public function listJobs( string $queue, JobState $state, int $limit = 50, int $offset = 0 ): array
+	{
+		$now = time();
+		$limit = max( 1, $limit );
+		$offset = max( 0, $offset );
+
+		$ids = match( $state )
+		{
+			JobState::Pending => array_slice(
+				array_values( array_unique( array_merge(
+					$this->_redis->lRange( $this->key( $queue ), 0, -1 ) ?: [],
+					$this->_redis->zRangeByScore( $this->key( $queue, 'delayed' ), '-inf', (string)$now ) ?: [],
+					$this->_redis->zRangeByScore( $this->key( $queue, 'reserved' ), '-inf', (string)$now ) ?: []
+				) ) ),
+				$offset,
+				$limit
+			),
+			JobState::Delayed => $this->_redis->zRangeByScore(
+				$this->key( $queue, 'delayed' ), '(' . $now, '+inf', [ 'limit' => [ $offset, $limit ] ]
+			) ?: [],
+			JobState::Reserved => $this->_redis->zRangeByScore(
+				$this->key( $queue, 'reserved' ), '(' . $now, '+inf', [ 'limit' => [ $offset, $limit ] ]
+			) ?: [],
+		};
+
+		$jobs = [];
+
+		foreach( $ids as $id )
+		{
+			$job = $this->findJob( (string)$id );
+
+			if( $job !== null )
+			{
+				$jobs[] = $job;
+			}
+		}
+
+		return $jobs;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function countJobs( string $queue, JobState $state ): int
+	{
+		$now = time();
+
+		return match( $state )
+		{
+			JobState::Pending  => $this->size( $queue ),
+			JobState::Delayed  => (int)$this->_redis->zCount( $this->key( $queue, 'delayed' ), '(' . $now, '+inf' ),
+			JobState::Reserved => (int)$this->_redis->zCount( $this->key( $queue, 'reserved' ), '(' . $now, '+inf' ),
+		};
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function findJob( string $id ): ?QueuedJob
+	{
+		$data = $this->_redis->hGetAll( $this->jobKey( $id ) );
+
+		if( !$data )
+		{
+			return null;
+		}
+
+		try
+		{
+			return $this->hydrate( $id, $data );
+		}
+		catch( \RuntimeException $e )
+		{
+			Log::warning( "Skipping job {$id} with unreadable payload: {$e->getMessage()}" );
+
+			return null;
+		}
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function deleteJob( string $id ): bool
+	{
+		$data = $this->_redis->hGetAll( $this->jobKey( $id ) );
+
+		if( !$data || ( $data['reserved_at'] ?? '' ) !== '' )
+		{
+			return false;
+		}
+
+		$queue = (string)$data['queue'];
+
+		$this->_redis->multi();
+		$this->_redis->zRem( $this->key( $queue, 'delayed' ), $id );
+		$this->_redis->lRem( $this->key( $queue ), $id, 0 );
+		$this->_redis->del( $this->jobKey( $id ) );
+		$this->_redis->exec();
+
+		Log::info( "Job removed from redis queue: {$id}" );
+
+		return true;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function releaseNow( string $id ): bool
+	{
+		$data = $this->_redis->hGetAll( $this->jobKey( $id ) );
+
+		if( !$data || ( $data['reserved_at'] ?? '' ) !== '' )
+		{
+			return false;
+		}
+
+		$queue = (string)$data['queue'];
+		$now = time();
+		$score = $this->_redis->zScore( $this->key( $queue, 'delayed' ), $id );
+
+		if( $score === false || $score === null || (int)$score <= $now )
+		{
+			// Already on the ready list, or due and about to be moved there.
+			return true;
+		}
+
+		$this->_redis->multi();
+		$this->_redis->zRem( $this->key( $queue, 'delayed' ), $id );
+		$this->_redis->hSet( $this->jobKey( $id ), 'available_at', $now );
+		$this->_redis->rPush( $this->key( $queue ), $id );
+		$this->_redis->exec();
+
+		Log::info( "Job released to run now: {$id}" );
+
+		return true;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function listFailedJobs( int $limit = 50, int $offset = 0, ?string $queue = null ): array
+	{
+		$limit = max( 1, $limit );
+		$offset = max( 0, $offset );
+
+		if( $queue === null )
+		{
+			$ids = $this->_redis->zRevRange( $this->key( 'failed' ), $offset, $offset + $limit - 1 ) ?: [];
+
+			return $this->failedRows( $ids );
+		}
+
+		$rows = array_values( array_filter(
+			$this->getFailedJobs(),
+			fn( array $row ) => ( $row['queue'] ?? null ) === $queue
+		) );
+
+		return array_slice( $rows, $offset, $limit );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function countFailedJobs( ?string $queue = null ): int
+	{
+		if( $queue === null )
+		{
+			return (int)$this->_redis->zCard( $this->key( 'failed' ) );
+		}
+
+		return count( $this->listFailedJobs( PHP_INT_MAX, 0, $queue ) );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function findFailedJob( string $id ): ?array
+	{
+		$rows = $this->failedRows( [ $id ] );
+
+		return $rows[0] ?? null;
+	}
+
+	/**
+	 * Failed hashes for a list of ids, skipping any that have gone.
+	 *
+	 * @param array $ids
+	 * @return list<array>
+	 */
+	private function failedRows( array $ids ): array
+	{
+		$rows = [];
+
+		foreach( $ids as $id )
+		{
+			$data = $this->_redis->hGetAll( $this->key( 'failed', (string)$id ) );
+
+			if( $data )
+			{
+				$data['failed_at'] = (int)( $data['failed_at'] ?? 0 );
+				$rows[] = $data;
+			}
+		}
+
+		return $rows;
 	}
 
 	/**

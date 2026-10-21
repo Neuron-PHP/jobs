@@ -83,8 +83,11 @@ class CliCommandsTest extends TestCase
 	public function testFailedCommandExecuteWithNoFailedJobs(): void
 	{
 		$this->queueManager
-			->expects($this->once())
-			->method('getFailedJobs')
+			->method('countFailedJobs')
+			->willReturn(0);
+
+		$this->queueManager
+			->method('listFailedJobs')
 			->willReturn([]);
 
 		$command = new FailedCommand();
@@ -110,8 +113,11 @@ class CliCommandsTest extends TestCase
 		];
 
 		$this->queueManager
-			->expects($this->once())
-			->method('getFailedJobs')
+			->method('countFailedJobs')
+			->willReturn(count($failedJobs));
+
+		$this->queueManager
+			->method('listFailedJobs')
 			->willReturn($failedJobs);
 
 		$command = new FailedCommand();
@@ -144,8 +150,11 @@ class CliCommandsTest extends TestCase
 		];
 
 		$this->queueManager
-			->expects($this->once())
-			->method('getFailedJobs')
+			->method('countFailedJobs')
+			->willReturn(count($failedJobs));
+
+		$this->queueManager
+			->method('listFailedJobs')
 			->willReturn($failedJobs);
 
 		$command = new FailedCommand();
@@ -463,9 +472,8 @@ class CliCommandsTest extends TestCase
 			->willReturn(10);
 
 		$this->queueManager
-			->expects($this->once())
-			->method('getFailedJobs')
-			->willReturn([]);
+			->method('countFailedJobs')
+			->willReturn(0);
 
 		$command = new StatsCommand();
 		$command->configure();
@@ -493,8 +501,8 @@ class CliCommandsTest extends TestCase
 
 		$this->queueManager
 			->expects($this->once())
-			->method('getFailedJobs')
-			->willReturn([['id' => '1'], ['id' => '2']]);
+			->method('countFailedJobs')
+			->willReturn(2);
 
 		$command = new StatsCommand();
 		$command->configure();
@@ -523,8 +531,8 @@ class CliCommandsTest extends TestCase
 
 		$this->queueManager
 			->expects($this->once())
-			->method('getFailedJobs')
-			->willReturn($failedJobs);
+			->method('countFailedJobs')
+			->willReturn(count($failedJobs));
 
 		$command = new StatsCommand();
 		$command->configure();

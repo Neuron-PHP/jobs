@@ -67,8 +67,8 @@ class StatsCommandTest extends TestCase
 				return 3;
 			});
 
-		$this->queueManager->method('getFailedJobs')
-			->willReturn([]);
+		$this->queueManager->method('countFailedJobs')
+			->willReturn(0);
 
 		$command = new StatsCommand();
 		$command->setInput(new Input([]));
@@ -91,8 +91,8 @@ class StatsCommandTest extends TestCase
 			->willReturn(5);
 
 		$this->queueManager->expects($this->once())
-			->method('getFailedJobs')
-			->willReturn([]);
+			->method('countFailedJobs')
+			->willReturn(0);
 
 		$command = new StatsCommand();
 		$command->setInput(new Input([]));
@@ -117,8 +117,8 @@ class StatsCommandTest extends TestCase
 			});
 
 		$this->queueManager->expects($this->once())
-			->method('getFailedJobs')
-			->willReturn(['job1', 'job2', 'job3']);
+			->method('countFailedJobs')
+			->willReturn(3);
 
 		$input = new Input(['--queue=high,default,low']);
 		$command = new StatsCommand();
@@ -142,8 +142,8 @@ class StatsCommandTest extends TestCase
 		];
 
 		$this->queueManager->expects($this->once())
-			->method('getFailedJobs')
-			->willReturn($failedJobs);
+			->method('countFailedJobs')
+			->willReturn(count($failedJobs));
 
 		$command = new StatsCommand();
 		$command->setInput(new Input([]));

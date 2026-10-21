@@ -80,6 +80,34 @@ class DatabaseScheduleLockTest extends TestCase
 		$this->assertEquals( 1, (int)$this->pdo->query( 'SELECT COUNT(*) FROM my_locks' )->fetchColumn() );
 	}
 
+	public function testGetLastClaimsReportsLatestClaimPerEntry(): void
+	{
+		$lock = new DatabaseScheduleLock( $this->pdo, 'locks' );
+
+		$this->assertSame( [], $lock->getLastClaims(), 'empty before any claim' );
+
+		$lock->acquire( 'cleanup', new \DateTimeImmutable( '2026-01-01 10:00:00' ) );
+		$lock->acquire( 'cleanup', new \DateTimeImmutable( '2026-01-01 10:05:00' ) );
+		$lock->acquire( 'digest', new \DateTimeImmutable( '2026-01-01 10:00:00' ) );
+
+		$this->pdo->exec( "UPDATE locks SET claimed_at = 1000 WHERE name = 'cleanup' AND due_minute = '202601011000'" );
+		$this->pdo->exec( "UPDATE locks SET claimed_at = 2000 WHERE name = 'cleanup' AND due_minute = '202601011005'" );
+		$this->pdo->exec( "UPDATE locks SET claimed_at = 1500 WHERE name = 'digest'" );
+
+		$this->assertSame( [ 'cleanup' => 2000, 'digest' => 1500 ], $lock->getLastClaims() );
+	}
+
+	public function testGetLastClaimsReturnsEmptyOnDatabaseError(): void
+	{
+		$lock = new DatabaseScheduleLock( $this->pdo );
+		$lock->acquire( 'warm', new \DateTimeImmutable() );
+
+		$this->pdo->exec( 'DROP TABLE ' . DatabaseScheduleLock::DEFAULT_TABLE );
+		$this->pdo->exec( 'CREATE TABLE ' . DatabaseScheduleLock::DEFAULT_TABLE . ' (wrong INTEGER)' );
+
+		$this->assertSame( [], $lock->getLastClaims() );
+	}
+
 	public function testFailsOpenOnUnexpectedDatabaseError(): void
 	{
 		$lock = new DatabaseScheduleLock( $this->pdo );

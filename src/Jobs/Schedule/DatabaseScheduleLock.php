@@ -111,6 +111,40 @@ class DatabaseScheduleLock implements IScheduleLock
 	}
 
 	/**
+	 * Most recent claim per schedule entry, for "last triggered" displays.
+	 *
+	 * Only entries that have been claimed within the retention window appear;
+	 * a schedule that has never fired (or not since the last prune) is absent.
+	 *
+	 * @return array<string, int> entry name => unix timestamp of the latest claim
+	 */
+	public function getLastClaims(): array
+	{
+		$this->ensureTable();
+
+		try
+		{
+			$stmt = $this->_connection->query(
+				"SELECT name, MAX(claimed_at) AS claimed_at FROM {$this->_table} GROUP BY name"
+			);
+
+			$claims = [];
+
+			foreach( $stmt->fetchAll( PDO::FETCH_ASSOC ) as $row )
+			{
+				$claims[ (string)$row['name'] ] = (int)$row['claimed_at'];
+			}
+
+			return $claims;
+		}
+		catch( PDOException $e )
+		{
+			Log::warning( "Schedule lock read failed: {$e->getMessage()}" );
+			return [];
+		}
+	}
+
+	/**
 	 * @return string
 	 */
 	public function getTable(): string

@@ -17,7 +17,7 @@ use Neuron\Log\Log;
  *
  * @package Neuron\Jobs\Queue
  */
-class ArrayQueue implements IQueue, IQueueStats, IUniqueQueue
+class ArrayQueue implements IQueue, IQueueStats, IUniqueQueue, IQueueInspector
 {
 	/** @var array<string, array<string, QueuedJob>> queue name => id => job */
 	private array $_jobs = [];
@@ -211,21 +211,166 @@ class ArrayQueue implements IQueue, IQueueStats, IUniqueQueue
 
 		foreach( $this->_failed as $id => $record )
 		{
-			/** @var QueuedJob $job */
-			$job = $record['job'];
-			/** @var \Throwable $exception */
-			$exception = $record['exception'];
-
-			$result[] = [
-				'id' => $id,
-				'queue' => $job->getQueue(),
-				'payload' => $job->getPayload(),
-				'exception' => get_class( $exception ) . ': ' . $exception->getMessage(),
-				'failed_at' => time()
-			];
+			$result[] = $this->failedRow( (string)$id, $record );
 		}
 
 		return $result;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function listJobs( string $queue, JobState $state, int $limit = 50, int $offset = 0 ): array
+	{
+		$now = time();
+
+		$matching = array_values( array_filter(
+			$this->_jobs[$queue] ?? [],
+			fn( QueuedJob $job ) => JobState::of( $job->getReservedAt(), $job->getAvailableAt(), $now ) === $state
+		) );
+
+		usort( $matching, function( QueuedJob $a, QueuedJob $b ) use ( $state ) {
+			$keyA = $state === JobState::Reserved ? (int)$a->getReservedAt() : $a->getAvailableAt();
+			$keyB = $state === JobState::Reserved ? (int)$b->getReservedAt() : $b->getAvailableAt();
+
+			return [ $keyA, $a->getId() ] <=> [ $keyB, $b->getId() ];
+		} );
+
+		return array_slice( $matching, max( 0, $offset ), max( 1, $limit ) );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function countJobs( string $queue, JobState $state ): int
+	{
+		$now = time();
+		$count = 0;
+
+		foreach( $this->_jobs[$queue] ?? [] as $job )
+		{
+			if( JobState::of( $job->getReservedAt(), $job->getAvailableAt(), $now ) === $state )
+			{
+				$count++;
+			}
+		}
+
+		return $count;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function findJob( string $id ): ?QueuedJob
+	{
+		foreach( $this->_jobs as $jobs )
+		{
+			if( isset( $jobs[$id] ) )
+			{
+				return $jobs[$id];
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function deleteJob( string $id ): bool
+	{
+		$job = $this->findJob( $id );
+
+		if( $job === null || $job->getReservedAt() !== null )
+		{
+			return false;
+		}
+
+		unset( $this->_jobs[$job->getQueue()][$id] );
+
+		return true;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function releaseNow( string $id ): bool
+	{
+		$job = $this->findJob( $id );
+
+		if( $job === null || $job->getReservedAt() !== null )
+		{
+			return false;
+		}
+
+		$now = time();
+
+		if( $job->getAvailableAt() > $now )
+		{
+			$job->setAvailableAt( $now );
+		}
+
+		return true;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function listFailedJobs( int $limit = 50, int $offset = 0, ?string $queue = null ): array
+	{
+		$rows = $this->getFailedJobs();
+
+		if( $queue !== null )
+		{
+			$rows = array_values( array_filter( $rows, fn( array $row ) => $row['queue'] === $queue ) );
+		}
+
+		return array_slice( $rows, max( 0, $offset ), max( 1, $limit ) );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function countFailedJobs( ?string $queue = null ): int
+	{
+		if( $queue === null )
+		{
+			return count( $this->_failed );
+		}
+
+		return count( $this->listFailedJobs( PHP_INT_MAX, 0, $queue ) );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function findFailedJob( string $id ): ?array
+	{
+		if( !isset( $this->_failed[$id] ) )
+		{
+			return null;
+		}
+
+		return $this->failedRow( $id, $this->_failed[$id] );
+	}
+
+	/**
+	 * @param string $id
+	 * @param array{job: QueuedJob, exception: \Throwable} $record
+	 * @return array
+	 */
+	private function failedRow( string $id, array $record ): array
+	{
+		$job = $record['job'];
+		$exception = $record['exception'];
+
+		return [
+			'id' => $id,
+			'queue' => $job->getQueue(),
+			'payload' => $job->getPayload(),
+			'exception' => get_class( $exception ) . ': ' . $exception->getMessage(),
+			'failed_at' => time()
+		];
 	}
 
 	/**

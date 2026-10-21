@@ -43,8 +43,12 @@ class FailedCommandTest extends TestCase
 
 	public function testExecuteWithNoFailedJobs(): void
 	{
-		$this->queueManager->expects($this->once())
-			->method('getFailedJobs')
+		$this->queueManager
+			->method('countFailedJobs')
+			->willReturn(0);
+
+		$this->queueManager
+			->method('listFailedJobs')
 			->willReturn([]);
 
 		$command = new FailedCommand();
@@ -76,8 +80,12 @@ class FailedCommandTest extends TestCase
 			]
 		];
 
-		$this->queueManager->expects($this->once())
-			->method('getFailedJobs')
+		$this->queueManager
+			->method('countFailedJobs')
+			->willReturn(count($failedJobs));
+
+		$this->queueManager
+			->method('listFailedJobs')
 			->willReturn($failedJobs);
 
 		$command = new FailedCommand();
@@ -87,6 +95,59 @@ class FailedCommandTest extends TestCase
 		$exitCode = $command->execute();
 
 		$this->assertEquals(0, $exitCode);
+	}
+
+	public function testPassesQueueLimitAndOffsetThrough(): void
+	{
+		$this->queueManager->expects($this->once())
+			->method('countFailedJobs')
+			->with('emails')
+			->willReturn(5);
+
+		$this->queueManager->expects($this->once())
+			->method('listFailedJobs')
+			->with(2, 2, 'emails')
+			->willReturn([
+				[ 'id' => 'job-3', 'queue' => 'emails', 'payload' => '{"class":"X"}', 'failed_at' => time(), 'exception' => 'e' ],
+				[ 'id' => 'job-4', 'queue' => 'emails', 'payload' => '{"class":"X"}', 'failed_at' => time(), 'exception' => 'e' ],
+			]);
+
+		$command = new FailedCommand();
+		$command->configure();
+		$input = new Input([]);
+		$input->setOption('queue', 'emails');
+		$input->setOption('limit', '2');
+		$input->setOption('offset', '2');
+		$command->setInput($input);
+		$command->setOutput($this->output);
+
+		ob_start();
+		$exitCode = $command->execute();
+		$out = ob_get_clean();
+
+		$this->assertEquals(0, $exitCode);
+		$this->assertStringContainsString('Failed Jobs (5)', $out);
+		$this->assertStringContainsString('Showing 3-4 of 5. Next: --offset=4', $out);
+	}
+
+	public function testNoFailedJobsOnNamedQueue(): void
+	{
+		$this->queueManager->method('countFailedJobs')->with('emails')->willReturn(0);
+		$this->queueManager->expects($this->never())->method('listFailedJobs');
+
+		$command = new FailedCommand();
+		$command->configure();
+		$input = new Input([]);
+		$input->setOption('queue', 'emails');
+		$command->setInput($input);
+		$command->setOutput($this->output);
+
+		ob_start();
+		$exitCode = $command->execute();
+		$out = ob_get_clean();
+
+		$this->assertEquals(0, $exitCode);
+		$this->assertStringContainsString("No failed jobs on 'emails'", $out);
 	}
 
 	public function testExecuteWithMalformedPayload(): void
@@ -102,8 +163,12 @@ class FailedCommandTest extends TestCase
 			]
 		];
 
-		$this->queueManager->expects($this->once())
-			->method('getFailedJobs')
+		$this->queueManager
+			->method('countFailedJobs')
+			->willReturn(count($failedJobs));
+
+		$this->queueManager
+			->method('listFailedJobs')
 			->willReturn($failedJobs);
 
 		$command = new FailedCommand();

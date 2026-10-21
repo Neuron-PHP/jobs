@@ -108,8 +108,7 @@ class StatsCommand extends Command
 			$this->output->write( "\n" );
 		}
 
-		$failedJobs = $queueManager->getFailedJobs();
-		$failedCount = count( $failedJobs );
+		$failedCount = $queueManager->countFailedJobs();
 
 		$this->output->info( "Failed Jobs: {$failedCount}" );
 		$this->output->write( "\n" );
