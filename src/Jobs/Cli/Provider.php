@@ -56,6 +56,11 @@ class Provider
 		);
 
 		$registry->register(
+			'jobs:list',
+			'Neuron\\Jobs\\Cli\\Commands\\ListCommand'
+		);
+
+		$registry->register(
 			'jobs:restart',
 			'Neuron\\Jobs\\Cli\\Commands\\RestartCommand'
 		);

@@ -495,16 +495,6 @@ class QueueManager
 	}
 
 	/**
-	 * Per-queue statistics.
-	 *
-	 * Drivers implementing IQueueStats report pending, delayed and reserved
-	 * counts and the age of the oldest runnable job; others report size() as
-	 * pending and null for the rest.
-	 *
-	 * @param string|null $queue Queue name (null = default)
-	 * @return array{pending:int,delayed:?int,reserved:?int,oldest_pending_age:?int}
-	 */
-	/**
 	 * The queue jobs go to when none is named.
 	 *
 	 * @return string
@@ -512,6 +502,163 @@ class QueueManager
 	public function getDefaultQueue(): string
 	{
 		return $this->_config['default_queue'] ?? 'default';
+	}
+
+	/**
+	 * Name of the configured driver (`database`, `file`, `redis`, ...).
+	 *
+	 * @return string
+	 */
+	public function getDriverName(): string
+	{
+		return (string)( $this->_config['driver'] ?? 'database' );
+	}
+
+	/**
+	 * Whether the driver can enumerate and act on waiting jobs
+	 * (implements IQueueInspector).
+	 *
+	 * @return bool
+	 */
+	public function supportsInspection(): bool
+	{
+		return $this->_driver instanceof IQueueInspector;
+	}
+
+	/**
+	 * @see IQueueInspector::listJobs()
+	 * @param string|null $queue Queue name (null = default)
+	 * @return list<QueuedJob>
+	 * @throws \RuntimeException when the driver does not support inspection
+	 */
+	public function listJobs( ?string $queue, JobState $state, int $limit = 50, int $offset = 0 ): array
+	{
+		return $this->inspector()->listJobs( $queue ?? $this->getDefaultQueue(), $state, $limit, $offset );
+	}
+
+	/**
+	 * @see IQueueInspector::countJobs()
+	 * @param string|null $queue Queue name (null = default)
+	 * @throws \RuntimeException when the driver does not support inspection
+	 */
+	public function countJobs( ?string $queue, JobState $state ): int
+	{
+		return $this->inspector()->countJobs( $queue ?? $this->getDefaultQueue(), $state );
+	}
+
+	/**
+	 * @see IQueueInspector::findJob()
+	 * @throws \RuntimeException when the driver does not support inspection
+	 */
+	public function findJob( string $id ): ?QueuedJob
+	{
+		return $this->inspector()->findJob( $id );
+	}
+
+	/**
+	 * @see IQueueInspector::deleteJob()
+	 * @throws \RuntimeException when the driver does not support inspection
+	 */
+	public function deleteJob( string $id ): bool
+	{
+		return $this->inspector()->deleteJob( $id );
+	}
+
+	/**
+	 * @see IQueueInspector::releaseNow()
+	 * @throws \RuntimeException when the driver does not support inspection
+	 */
+	public function releaseNow( string $id ): bool
+	{
+		return $this->inspector()->releaseNow( $id );
+	}
+
+	/**
+	 * Failed jobs, most recent first. Drivers without IQueueInspector are
+	 * paged in memory from getFailedJobs(), so this always works.
+	 *
+	 * @see IQueueInspector::listFailedJobs()
+	 * @return list<array>
+	 */
+	public function listFailedJobs( int $limit = 50, int $offset = 0, ?string $queue = null ): array
+	{
+		if( $this->_driver instanceof IQueueInspector )
+		{
+			return $this->_driver->listFailedJobs( $limit, $offset, $queue );
+		}
+
+		return array_slice( $this->failedJobsIn( $queue ), max( 0, $offset ), max( 1, $limit ) );
+	}
+
+	/**
+	 * @see IQueueInspector::countFailedJobs()
+	 */
+	public function countFailedJobs( ?string $queue = null ): int
+	{
+		if( $this->_driver instanceof IQueueInspector )
+		{
+			return $this->_driver->countFailedJobs( $queue );
+		}
+
+		return count( $this->failedJobsIn( $queue ) );
+	}
+
+	/**
+	 * @see IQueueInspector::findFailedJob()
+	 */
+	public function findFailedJob( string $id ): ?array
+	{
+		if( $this->_driver instanceof IQueueInspector )
+		{
+			return $this->_driver->findFailedJob( $id );
+		}
+
+		foreach( $this->_driver->getFailedJobs() as $row )
+		{
+			if( (string)( $row['id'] ?? '' ) === $id )
+			{
+				return $row;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * The driver as an inspector, or a clear error for callers that did not
+	 * check supportsInspection() first.
+	 *
+	 * @return IQueueInspector
+	 * @throws \RuntimeException
+	 */
+	private function inspector(): IQueueInspector
+	{
+		if( !$this->_driver instanceof IQueueInspector )
+		{
+			throw new \RuntimeException(
+				"The '{$this->getDriverName()}' queue driver does not support job inspection."
+			);
+		}
+
+		return $this->_driver;
+	}
+
+	/**
+	 * getFailedJobs() narrowed to one queue when asked.
+	 *
+	 * @param string|null $queue
+	 * @return list<array>
+	 */
+	private function failedJobsIn( ?string $queue ): array
+	{
+		$rows = $this->_driver->getFailedJobs();
+
+		if( $queue === null )
+		{
+			return array_values( $rows );
+		}
+
+		return array_values( array_filter( $rows, fn( array $row ) => ( $row['queue'] ?? null ) === $queue ) );
 	}
 
 	/**
@@ -530,6 +677,16 @@ class QueueManager
 		return [ $this->getDefaultQueue() ];
 	}
 
+	/**
+	 * Per-queue statistics.
+	 *
+	 * Drivers implementing IQueueStats report pending, delayed and reserved
+	 * counts and the age of the oldest runnable job; others report size() as
+	 * pending and null for the rest.
+	 *
+	 * @param string|null $queue Queue name (null = default)
+	 * @return array{pending:int,delayed:?int,reserved:?int,oldest_pending_age:?int}
+	 */
 	public function getStats( ?string $queue = null ): array
 	{
 		$queue = $queue ?? $this->_config['default_queue'] ?? 'default';

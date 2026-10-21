@@ -14,7 +14,7 @@ use Neuron\Log\Log;
  *
  * @package Neuron\Jobs\Queue
  */
-class DatabaseQueue implements IQueue, IQueueStats, IUniqueQueue
+class DatabaseQueue implements IQueue, IQueueStats, IUniqueQueue, IQueueInspector
 {
 	private \PDO $_connection;
 	private string $_jobsTable = 'jobs';
@@ -522,6 +522,226 @@ class DatabaseQueue implements IQueue, IQueueStats, IUniqueQueue
 	/**
 	 * @inheritDoc
 	 */
+	public function listJobs( string $queue, JobState $state, int $limit = 50, int $offset = 0 ): array
+	{
+		$limit = max( 1, $limit );
+		$offset = max( 0, $offset );
+
+		$order = $state === JobState::Reserved ? 'reserved_at ASC, id ASC' : 'available_at ASC, id ASC';
+
+		$sql = "SELECT * FROM {$this->_jobsTable}
+			WHERE queue = :queue AND {$this->statePredicate( $state )}
+			ORDER BY {$order}
+			LIMIT {$limit} OFFSET {$offset}";
+
+		$stmt = $this->_connection->prepare( $sql );
+		$stmt->execute( $this->stateParams( $state, [ 'queue' => $queue ] ) );
+
+		$jobs = [];
+
+		while( $row = $stmt->fetch( \PDO::FETCH_ASSOC ) )
+		{
+			$job = $this->hydrateRow( $row );
+
+			if( $job !== null )
+			{
+				$jobs[] = $job;
+			}
+		}
+
+		return $jobs;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function countJobs( string $queue, JobState $state ): int
+	{
+		$sql = "SELECT COUNT(*) AS count FROM {$this->_jobsTable}
+			WHERE queue = :queue AND {$this->statePredicate( $state )}";
+
+		$stmt = $this->_connection->prepare( $sql );
+		$stmt->execute( $this->stateParams( $state, [ 'queue' => $queue ] ) );
+
+		$row = $stmt->fetch( \PDO::FETCH_ASSOC );
+
+		return (int)( $row['count'] ?? 0 );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function findJob( string $id ): ?QueuedJob
+	{
+		$stmt = $this->_connection->prepare( "SELECT * FROM {$this->_jobsTable} WHERE id = :id" );
+		$stmt->execute( [ 'id' => $id ] );
+
+		$row = $stmt->fetch( \PDO::FETCH_ASSOC );
+
+		return $row ? $this->hydrateRow( $row ) : null;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function deleteJob( string $id ): bool
+	{
+		$stmt = $this->_connection->prepare(
+			"DELETE FROM {$this->_jobsTable} WHERE id = :id AND reserved_at IS NULL"
+		);
+		$stmt->execute( [ 'id' => $id ] );
+
+		if( $stmt->rowCount() > 0 )
+		{
+			Log::info( "Job removed from queue: {$id}" );
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function releaseNow( string $id ): bool
+	{
+		$job = $this->findJob( $id );
+
+		if( $job === null || $job->getReservedAt() !== null )
+		{
+			return false;
+		}
+
+		$now = time();
+
+		if( $job->getAvailableAt() <= $now )
+		{
+			return true;
+		}
+
+		$stmt = $this->_connection->prepare(
+			"UPDATE {$this->_jobsTable} SET available_at = :now WHERE id = :id AND reserved_at IS NULL"
+		);
+		$stmt->execute( [ 'now' => $now, 'id' => $id ] );
+
+		Log::info( "Job released to run now: {$id}" );
+
+		return $stmt->rowCount() > 0;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function listFailedJobs( int $limit = 50, int $offset = 0, ?string $queue = null ): array
+	{
+		$limit = max( 1, $limit );
+		$offset = max( 0, $offset );
+
+		$where = $queue === null ? '' : 'WHERE queue = :queue';
+
+		$sql = "SELECT * FROM {$this->_failedJobsTable} {$where}
+			ORDER BY failed_at DESC, id DESC
+			LIMIT {$limit} OFFSET {$offset}";
+
+		$stmt = $this->_connection->prepare( $sql );
+		$stmt->execute( $queue === null ? [] : [ 'queue' => $queue ] );
+
+		return $stmt->fetchAll( \PDO::FETCH_ASSOC ) ?: [];
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function countFailedJobs( ?string $queue = null ): int
+	{
+		$where = $queue === null ? '' : 'WHERE queue = :queue';
+
+		$stmt = $this->_connection->prepare( "SELECT COUNT(*) AS count FROM {$this->_failedJobsTable} {$where}" );
+		$stmt->execute( $queue === null ? [] : [ 'queue' => $queue ] );
+
+		$row = $stmt->fetch( \PDO::FETCH_ASSOC );
+
+		return (int)( $row['count'] ?? 0 );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function findFailedJob( string $id ): ?array
+	{
+		$stmt = $this->_connection->prepare( "SELECT * FROM {$this->_failedJobsTable} WHERE id = :id" );
+		$stmt->execute( [ 'id' => $id ] );
+
+		$row = $stmt->fetch( \PDO::FETCH_ASSOC );
+
+		return $row ?: null;
+	}
+
+	/**
+	 * SQL predicate selecting one job state. Pairs with stateParams().
+	 *
+	 * @param JobState $state
+	 * @return string
+	 */
+	private function statePredicate( JobState $state ): string
+	{
+		return match( $state )
+		{
+			JobState::Pending  => 'reserved_at IS NULL AND available_at <= :now',
+			JobState::Delayed  => 'reserved_at IS NULL AND available_at > :now',
+			JobState::Reserved => 'reserved_at IS NOT NULL',
+		};
+	}
+
+	/**
+	 * Bound parameters for statePredicate(), merged with the caller's own.
+	 *
+	 * @param JobState $state
+	 * @param array $params
+	 * @return array
+	 */
+	private function stateParams( JobState $state, array $params ): array
+	{
+		if( $state !== JobState::Reserved )
+		{
+			$params['now'] = time();
+		}
+
+		return $params;
+	}
+
+	/**
+	 * A jobs-table row as a QueuedJob, or null (logged) when its payload is
+	 * unreadable, so one corrupt row cannot blank an inspection listing.
+	 *
+	 * @param array $row
+	 * @return QueuedJob|null
+	 */
+	private function hydrateRow( array $row ): ?QueuedJob
+	{
+		try
+		{
+			return QueuedJob::fromPayload(
+				(string)$row['id'],
+				(string)$row['queue'],
+				(string)$row['payload'],
+				(int)$row['attempts'],
+				$row['reserved_at'] === null ? null : (int)$row['reserved_at'],
+				(int)$row['available_at'],
+				(int)$row['created_at']
+			);
+		}
+		catch( \RuntimeException $e )
+		{
+			Log::warning( "Skipping job {$row['id']} with unreadable payload: {$e->getMessage()}" );
+
+			return null;
+		}
+	}
+
+	/**
+	 * @inheritDoc
+	 */
 	public function clear( string $queue = 'default' ): int
 	{
 		$sql = "DELETE FROM {$this->_jobsTable} WHERE queue = :queue";
@@ -541,7 +761,7 @@ class DatabaseQueue implements IQueue, IQueueStats, IUniqueQueue
 	 */
 	public function getFailedJobs(): array
 	{
-		$sql = "SELECT * FROM {$this->_failedJobsTable} ORDER BY failed_at DESC";
+		$sql = "SELECT * FROM {$this->_failedJobsTable} ORDER BY failed_at DESC, id DESC";
 
 		$stmt = $this->_connection->query( $sql );
 

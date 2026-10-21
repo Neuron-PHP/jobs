@@ -495,6 +495,30 @@ means a stuck reservation or too few workers for that queue. Drivers expose
 these through `Neuron\Jobs\Queue\IQueueStats`; a driver that does not
 implement it reports pending only.
 
+### List Waiting Jobs
+
+```bash
+# Pending jobs on the default queue
+vendor/bin/neuron jobs:list
+
+# Delayed jobs on a queue, paged
+vendor/bin/neuron jobs:list --queue=emails --state=delayed --limit=20 --offset=20
+
+# What workers are holding right now
+vendor/bin/neuron jobs:list --state=reserved
+```
+
+Each job prints its id, class, attempts, how long it has waited (or until it
+runs, or how long a worker has held it) and an arguments preview. The
+database, file, array and redis drivers support this through
+`Neuron\Jobs\Queue\IQueueInspector`; the sync driver has nothing to list.
+
+`IQueueInspector` is also the programmatic way to inspect a store:
+`listJobs()`, `countJobs()`, `findJob()`, `deleteJob()` (pending or delayed
+only), `releaseNow()` (make a delayed job runnable), and paginated
+`listFailedJobs()` / `countFailedJobs()` / `findFailedJob()`. `QueueManager`
+exposes the same methods and `supportsInspection()`.
+
 ### Managing Failed Jobs
 
 A job fails when `run()` throws, or when it returns `false`: `IJob` defines the
@@ -508,6 +532,10 @@ return value, including `null`, is success, so return `null` rather than
 
 ```bash
 vendor/bin/neuron jobs:failed
+
+# Page through a long list, or narrow to one queue
+vendor/bin/neuron jobs:failed --limit=20 --offset=20
+vendor/bin/neuron jobs:failed --queue=emails
 ```
 
 Shows:
@@ -516,6 +544,9 @@ Shows:
 - Job class
 - Failure timestamp
 - Exception details
+
+The first 50 are shown unless `--limit` says otherwise; the footer tells you
+the `--offset` for the next page.
 
 #### Retry Failed Jobs
 

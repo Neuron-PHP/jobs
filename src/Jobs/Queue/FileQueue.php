@@ -13,7 +13,7 @@ use Neuron\Log\Log;
  *
  * @package Neuron\Jobs\Queue
  */
-class FileQueue implements IQueue, IQueueStats
+class FileQueue implements IQueue, IQueueStats, IQueueInspector
 {
 	private string $_path;
 	private string $_failedPath;
@@ -384,6 +384,313 @@ class FileQueue implements IQueue, IQueueStats
 		$stats['oldest_pending_age'] = $oldest === null ? null : max( 0, $now - $oldest );
 
 		return $stats;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function listJobs( string $queue, JobState $state, int $limit = 50, int $offset = 0 ): array
+	{
+		$now = time();
+		$matching = [];
+
+		foreach( $this->readQueue( $queue ) as $jobData )
+		{
+			if( JobState::of( $jobData['reserved_at'], (int)$jobData['available_at'], $now ) === $state )
+			{
+				$matching[] = $jobData;
+			}
+		}
+
+		$sortKey = $state === JobState::Reserved ? 'reserved_at' : 'available_at';
+
+		usort( $matching, fn( array $a, array $b ) =>
+			[ (int)$a[ $sortKey ], (string)$a['id'] ] <=> [ (int)$b[ $sortKey ], (string)$b['id'] ]
+		);
+
+		$jobs = [];
+
+		foreach( array_slice( $matching, max( 0, $offset ), max( 1, $limit ) ) as $jobData )
+		{
+			$job = $this->hydrateData( $jobData );
+
+			if( $job !== null )
+			{
+				$jobs[] = $job;
+			}
+		}
+
+		return $jobs;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function countJobs( string $queue, JobState $state ): int
+	{
+		$now = time();
+		$count = 0;
+
+		foreach( $this->readQueue( $queue ) as $jobData )
+		{
+			if( JobState::of( $jobData['reserved_at'], (int)$jobData['available_at'], $now ) === $state )
+			{
+				$count++;
+			}
+		}
+
+		return $count;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function findJob( string $id ): ?QueuedJob
+	{
+		$file = $this->locateJobFile( $id );
+
+		if( $file === null )
+		{
+			return null;
+		}
+
+		$jobData = json_decode( (string)file_get_contents( $file ), true );
+
+		return is_array( $jobData ) ? $this->hydrateData( $jobData ) : null;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function deleteJob( string $id ): bool
+	{
+		$file = $this->locateJobFile( $id );
+
+		if( $file === null )
+		{
+			return false;
+		}
+
+		$fp = fopen( $file, 'r+' );
+
+		if( !$fp || !flock( $fp, LOCK_EX ) )
+		{
+			if( $fp )
+			{
+				fclose( $fp );
+			}
+
+			return false;
+		}
+
+		$jobData = json_decode( (string)fread( $fp, max( 1, filesize( $file ) ) ), true );
+
+		if( !is_array( $jobData ) || ( $jobData['reserved_at'] ?? null ) !== null )
+		{
+			flock( $fp, LOCK_UN );
+			fclose( $fp );
+
+			return false;
+		}
+
+		$removed = unlink( $file );
+
+		flock( $fp, LOCK_UN );
+		fclose( $fp );
+
+		if( $removed )
+		{
+			Log::info( "Job removed from file queue: {$id}" );
+		}
+
+		return $removed;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function releaseNow( string $id ): bool
+	{
+		$file = $this->locateJobFile( $id );
+
+		if( $file === null )
+		{
+			return false;
+		}
+
+		$fp = fopen( $file, 'r+' );
+
+		if( !$fp || !flock( $fp, LOCK_EX ) )
+		{
+			if( $fp )
+			{
+				fclose( $fp );
+			}
+
+			return false;
+		}
+
+		$jobData = json_decode( (string)fread( $fp, max( 1, filesize( $file ) ) ), true );
+		$result = false;
+
+		if( is_array( $jobData ) && ( $jobData['reserved_at'] ?? null ) === null )
+		{
+			$now = time();
+
+			if( (int)$jobData['available_at'] > $now )
+			{
+				$jobData['available_at'] = $now;
+
+				ftruncate( $fp, 0 );
+				rewind( $fp );
+				fwrite( $fp, json_encode( $jobData, JSON_PRETTY_PRINT ) );
+
+				Log::info( "Job released to run now: {$id}" );
+			}
+
+			$result = true;
+		}
+
+		flock( $fp, LOCK_UN );
+		fclose( $fp );
+
+		return $result;
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function listFailedJobs( int $limit = 50, int $offset = 0, ?string $queue = null ): array
+	{
+		$jobs = $this->getFailedJobs();
+
+		if( $queue !== null )
+		{
+			$jobs = array_values( array_filter( $jobs, fn( array $job ) => ( $job['queue'] ?? null ) === $queue ) );
+		}
+
+		return array_slice( $jobs, max( 0, $offset ), max( 1, $limit ) );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function countFailedJobs( ?string $queue = null ): int
+	{
+		if( $queue === null )
+		{
+			return count( glob( $this->_failedPath . '/failed_*.json' ) ?: [] );
+		}
+
+		return count( $this->listFailedJobs( PHP_INT_MAX, 0, $queue ) );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function findFailedJob( string $id ): ?array
+	{
+		$filename = $this->_failedPath . '/failed_' . $id . '.json';
+
+		if( !file_exists( $filename ) )
+		{
+			return null;
+		}
+
+		$jobData = json_decode( (string)file_get_contents( $filename ), true );
+
+		return is_array( $jobData ) ? $jobData : null;
+	}
+
+	/**
+	 * Every readable job record in one queue directory.
+	 *
+	 * @param string $queue
+	 * @return list<array>
+	 */
+	private function readQueue( string $queue ): array
+	{
+		$queuePath = $this->getQueuePath( $queue );
+
+		if( !is_dir( $queuePath ) )
+		{
+			return [];
+		}
+
+		$records = [];
+
+		foreach( glob( $queuePath . '/job_*.json' ) ?: [] as $file )
+		{
+			$jobData = json_decode( (string)file_get_contents( $file ), true );
+
+			if( is_array( $jobData ) && isset( $jobData['id'], $jobData['available_at'] ) )
+			{
+				$jobData['reserved_at'] = $jobData['reserved_at'] ?? null;
+				$records[] = $jobData;
+			}
+		}
+
+		return $records;
+	}
+
+	/**
+	 * The file holding a job id, searched across every queue directory.
+	 *
+	 * @param string $id
+	 * @return string|null
+	 */
+	private function locateJobFile( string $id ): ?string
+	{
+		if( $id === '' || str_contains( $id, '/' ) || str_contains( $id, '..' ) )
+		{
+			return null;
+		}
+
+		foreach( glob( $this->_path . '/*', GLOB_ONLYDIR ) ?: [] as $dir )
+		{
+			if( $dir === $this->_failedPath )
+			{
+				continue;
+			}
+
+			$candidate = $dir . '/' . $id . '.json';
+
+			if( file_exists( $candidate ) )
+			{
+				return $candidate;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * A stored record as a QueuedJob, or null (logged) when its payload is
+	 * unreadable.
+	 *
+	 * @param array $jobData
+	 * @return QueuedJob|null
+	 */
+	private function hydrateData( array $jobData ): ?QueuedJob
+	{
+		try
+		{
+			return QueuedJob::fromPayload(
+				(string)$jobData['id'],
+				(string)$jobData['queue'],
+				(string)$jobData['payload'],
+				(int)( $jobData['attempts'] ?? 0 ),
+				$jobData['reserved_at'] === null ? null : (int)$jobData['reserved_at'],
+				(int)$jobData['available_at'],
+				(int)( $jobData['created_at'] ?? 0 )
+			);
+		}
+		catch( \RuntimeException $e )
+		{
+			Log::warning( "Skipping job {$jobData['id']} with unreadable payload: {$e->getMessage()}" );
+
+			return null;
+		}
 	}
 
 	/**
