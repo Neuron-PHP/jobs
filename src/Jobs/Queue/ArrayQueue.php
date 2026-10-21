@@ -153,6 +153,15 @@ class ArrayQueue implements IQueue, IQueueStats, IUniqueQueue
 	/**
 	 * @inheritDoc
 	 */
+	public function getQueueNames(): array
+	{
+		$names = array_keys( array_filter( $this->_jobs, fn( array $jobs ) => $jobs !== [] ) );
+
+		sort( $names );
+
+		return array_map( 'strval', $names );
+	}
+
 	public function getStats( string $queue = 'default' ): array
 	{
 		$stats = [ 'pending' => 0, 'delayed' => 0, 'reserved' => 0, 'oldest_pending_age' => null ];

@@ -294,6 +294,32 @@ LUA;
 
 	/**
 	 * @inheritDoc
+	 *
+	 * The `queues` set records every queue ever pushed to; names whose keys
+	 * have since emptied are filtered out here rather than maintained on every
+	 * pop.
+	 */
+	public function getQueueNames(): array
+	{
+		$names = [];
+
+		foreach( $this->_redis->sMembers( $this->key( 'queues' ) ) ?: [] as $queue )
+		{
+			$stats = $this->getStats( (string)$queue );
+
+			if( $stats['pending'] + $stats['delayed'] + $stats['reserved'] > 0 )
+			{
+				$names[] = (string)$queue;
+			}
+		}
+
+		sort( $names );
+
+		return $names;
+	}
+
+	/**
+	 * @inheritDoc
 	 */
 	public function getStats( string $queue = 'default' ): array
 	{

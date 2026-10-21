@@ -512,6 +512,16 @@ class DatabaseQueue implements IQueue, IQueueStats, IUniqueQueue
 	/**
 	 * @inheritDoc
 	 */
+	public function getQueueNames(): array
+	{
+		$stmt = $this->_connection->query( "SELECT DISTINCT queue FROM {$this->_jobsTable} ORDER BY queue" );
+
+		return array_map( 'strval', $stmt->fetchAll( \PDO::FETCH_COLUMN ) ?: [] );
+	}
+
+	/**
+	 * @inheritDoc
+	 */
 	public function clear( string $queue = 'default' ): int
 	{
 		$sql = "DELETE FROM {$this->_jobsTable} WHERE queue = :queue";

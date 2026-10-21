@@ -50,11 +50,41 @@ class StatsCommandTest extends TestCase
 		$this->assertArrayHasKey('queue', $options);
 		$this->assertTrue($options['queue']['hasValue']);
 		$this->assertEquals('Q', $options['queue']['shortcut']);
-		$this->assertEquals('default', $options['queue']['default']);
+		// No default: unset means "every queue holding jobs".
+		$this->assertNull($options['queue']['default']);
+	}
+
+	public function testWithoutAQueueOptionEveryQueueHoldingJobsIsShown(): void
+	{
+		$this->queueManager->method('getQueueNames')
+			->willReturn(['monitors', 'notifications']);
+
+		$seen = [];
+		$this->queueManager->expects($this->exactly(2))
+			->method('size')
+			->willReturnCallback(function($queue) use (&$seen) {
+				$seen[] = $queue;
+				return 3;
+			});
+
+		$this->queueManager->method('getFailedJobs')
+			->willReturn([]);
+
+		$command = new StatsCommand();
+		$command->setInput(new Input([]));
+		$command->setOutput($this->output);
+
+		$this->assertEquals(0, $command->execute());
+		$this->assertSame(['monitors', 'notifications'], $seen);
 	}
 
 	public function testExecuteWithDefaultQueue(): void
 	{
+		// Nothing in the store: fall back to the default queue so the output
+		// still names one.
+		$this->queueManager->method('getQueueNames')->willReturn([]);
+		$this->queueManager->method('getDefaultQueue')->willReturn('default');
+
 		$this->queueManager->expects($this->once())
 			->method('size')
 			->with('default')

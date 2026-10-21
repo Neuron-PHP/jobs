@@ -627,6 +627,24 @@ class FileQueueTest extends TestCase
 	/**
 	 * Overwrite fields in a stored job file to simulate another worker's state.
 	 */
+	public function testGetQueueNamesListsOnlyQueuesHoldingJobs(): void
+	{
+		$this->assertSame( [], $this->queue->getQueueNames() );
+
+		$this->queue->push( new FileQueueTestJob(), [], 'notifications' );
+		$this->queue->push( new FileQueueTestJob(), [], 'monitors' );
+		$this->queue->push( new FileQueueTestJob(), [], 'monitors', 600 ); // delayed still counts
+
+		$this->assertSame( [ 'monitors', 'notifications' ], $this->queue->getQueueNames() );
+
+		// Reserved still counts; a drained queue drops out.
+		$job = $this->queue->pop( 'notifications' );
+		$this->assertSame( [ 'monitors', 'notifications' ], $this->queue->getQueueNames() );
+
+		$this->queue->delete( $job );
+		$this->assertSame( [ 'monitors' ], $this->queue->getQueueNames() );
+	}
+
 	public function testGetStatsSplitsPendingDelayedAndReserved(): void
 	{
 		$this->assertInstanceOf( \Neuron\Jobs\Queue\IQueueStats::class, $this->queue );

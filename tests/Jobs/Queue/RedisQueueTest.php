@@ -213,6 +213,24 @@ class RedisQueueTest extends TestCase
 		$this->assertEquals( 1, $this->queue->size( 'b' ) );
 	}
 
+	public function testGetQueueNamesListsOnlyQueuesHoldingJobs(): void
+	{
+		$this->assertSame( [], $this->queue->getQueueNames() );
+
+		$this->queue->push( new RedisQueueTestJob(), [], 'notifications' );
+		$this->queue->push( new RedisQueueTestJob(), [], 'monitors' );
+		$this->queue->push( new RedisQueueTestJob(), [], 'monitors', 600 ); // delayed still counts
+
+		$this->assertSame( [ 'monitors', 'notifications' ], $this->queue->getQueueNames() );
+
+		// Reserved still counts; a drained queue drops out.
+		$job = $this->queue->pop( 'notifications' );
+		$this->assertSame( [ 'monitors', 'notifications' ], $this->queue->getQueueNames() );
+
+		$this->queue->delete( $job );
+		$this->assertSame( [ 'monitors' ], $this->queue->getQueueNames() );
+	}
+
 	public function testGetStats(): void
 	{
 		$this->assertInstanceOf( IQueueStats::class, $this->queue );

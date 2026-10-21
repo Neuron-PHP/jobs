@@ -33,7 +33,7 @@ class StatsCommand extends Command
 	 */
 	public function configure(): void
 	{
-		$this->addOption( 'queue', 'Q', true, 'Queue to show stats for (comma-separated)', 'default' );
+		$this->addOption( 'queue', 'Q', true, 'Queue to show stats for (comma-separated; default: every queue holding jobs)' );
 	}
 
 	/**
@@ -51,8 +51,23 @@ class StatsCommand extends Command
 			return 1;
 		}
 
-		$queueNames = $this->input->getOption( 'queue', 'default' );
-		$queues = array_map( 'trim', explode( ',', $queueNames ) );
+		$queueNames = $this->input->getOption( 'queue' );
+
+		if( is_string( $queueNames ) && trim( $queueNames ) !== '' )
+		{
+			$queues = array_map( 'trim', explode( ',', $queueNames ) );
+		}
+		else
+		{
+			// Whatever is actually in the store, so a queue nobody expected
+			// (or a queue nobody is draining) shows up without being asked for.
+			$queues = $queueManager->getQueueNames();
+
+			if( $queues === [] )
+			{
+				$queues = [ $queueManager->getDefaultQueue() ];
+			}
+		}
 
 		$this->output->info( "Queue Statistics" );
 		$this->output->info( str_repeat( "═", 60 ) );
