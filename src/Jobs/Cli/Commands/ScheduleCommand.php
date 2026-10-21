@@ -11,7 +11,7 @@ use Neuron\Jobs\Queue\QueueManager;
 use Neuron\Jobs\Schedule\DatabaseScheduleLock;
 use Neuron\Jobs\Schedule\IScheduleLock;
 use Neuron\Jobs\Scheduler;
-use Neuron\Data\Settings\Source\Yaml;
+use Neuron\Data\Settings\SettingManagerFactory;
 use Neuron\Data\Objects\Version;
 
 /**
@@ -208,21 +208,23 @@ class ScheduleCommand extends Command
 	 */
 	private function initializeScheduler( string $configPath ): ?Scheduler
 	{
-		// Try to load settings
+		// Load settings: every file layer is optional, the environment is the
+		// fallback. Only consulted when bin/neuron has not already put the
+		// settings in the Registry (Base::initSettings() prefers those).
 		$settings = null;
-		$configFile = $configPath . '/neuron.yaml';
 
-		if( file_exists( $configFile ) )
+		try
 		{
-			try
+			$settings = SettingManagerFactory::create( null, $configPath );
+
+			if( file_exists( $configPath . '/neuron.yaml' ) )
 			{
-				$settings = new Yaml( $configFile );
-				$this->output->info( 'Loaded configuration from: ' . $configFile );
+				$this->output->info( 'Loaded configuration from: ' . $configPath . '/neuron.yaml' );
 			}
-			catch( \Exception $e )
-			{
-				$this->output->warning( 'Could not load neuron.yaml: ' . $e->getMessage() );
-			}
+		}
+		catch( \Exception $e )
+		{
+			$this->output->warning( 'Could not load configuration: ' . $e->getMessage() );
 		}
 		
 		// Load version information

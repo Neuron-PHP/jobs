@@ -93,4 +93,13 @@ class StopSignalsTest extends TestCase
 
 		$this->assertSame( [ SIGINT ], $received );
 	}
+
+	public function testNameDescribesTheSignalForLogLines(): void
+	{
+		$this->assertSame( 'SIGTERM', StopSignals::name( SIGTERM ) );
+		$this->assertSame( 'SIGINT', StopSignals::name( SIGINT ) );
+		$this->assertSame( 'SIGWINCH', StopSignals::name( SIGWINCH ) );
+		$this->assertSame( 'signal 64', StopSignals::name( 64 ) );
+		$this->assertSame( 'stop request', StopSignals::name( null ) );
+	}
 }

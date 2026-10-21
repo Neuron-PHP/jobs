@@ -73,13 +73,14 @@ class Scheduler extends CommandLineBase
 	 * A poll in progress completes so every job due at that minute is still
 	 * triggered, then infinitePoll() returns instead of sleeping.
 	 *
+	 * @param int|null $signal The signal that asked, when called from a handler
 	 * @return void
 	 */
-	public function stop(): void
+	public function stop( ?int $signal = null ): void
 	{
 		if( !$this->_shouldStop )
 		{
-			Log::info( "Scheduler received stop signal, shutting down gracefully..." );
+			Log::info( "Scheduler received " . StopSignals::name( $signal ) . ", shutting down gracefully..." );
 		}
 
 		$this->_shouldStop = true;
@@ -107,8 +108,8 @@ class Scheduler extends CommandLineBase
 			return;
 		}
 
-		$this->_signalsRegistered = StopSignals::register( function() {
-			$this->stop();
+		$this->_signalsRegistered = StopSignals::register( function( int $signal ) {
+			$this->stop( $signal );
 		} );
 	}
 

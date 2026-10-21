@@ -12,6 +12,15 @@
   configuration directory could be found" and running every job without the
   application's initializers. A directory holding `neuron.yaml` is still
   preferred when several candidates exist.
+* The worker's and scheduler's shutdown log line names the signal that asked
+  (`SIGTERM`, `SIGINT`, `SIGWINCH`), so a container that keeps stopping can be
+  traced to whoever is sending it. `Worker::stop()` and `Scheduler::stop()`
+  take the signal number as an optional argument; `StopSignals::name()`
+  formats it.
+* `jobs:schedule` loads settings through `SettingManagerFactory` rather than
+  reading `neuron.yaml` directly, so environment-specific files, encrypted
+  secrets and environment variables apply when the Registry has no settings
+  yet.
 
 ## 0.2.18 2026-10-20
 

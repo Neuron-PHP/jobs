@@ -43,6 +43,30 @@ class StopSignals
 	}
 
 	/**
+	 * Human-readable name of a signal, for log lines.
+	 *
+	 * @param int|null $signal Signal number; null when stop() was called directly
+	 * @return string e.g. "SIGTERM", "signal 28", or "stop request" for null
+	 */
+	public static function name( ?int $signal ): string
+	{
+		if( $signal === null )
+		{
+			return 'stop request';
+		}
+
+		foreach( [ 'SIGTERM', 'SIGINT', 'SIGWINCH', 'SIGHUP', 'SIGQUIT' ] as $name )
+		{
+			if( defined( $name ) && constant( $name ) === $signal )
+			{
+				return $name;
+			}
+		}
+
+		return "signal $signal";
+	}
+
+	/**
 	 * Signal numbers treated as stop requests in this process.
 	 *
 	 * @return int[]
