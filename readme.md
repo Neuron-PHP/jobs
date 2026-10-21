@@ -87,6 +87,9 @@ queue:
   bootstrap: App\Jobs\WorkerBootstrap   # Boots the application inside jobs:work / jobs:schedule
   schedule_lock: database   # Optional: lets several jobs:schedule instances share one schedule
   restart_file: storage/jobs.restart    # Optional: touched by jobs:restart; default shown
+  # history: database       # Optional: persist finished runs in job_runs (lazy table)
+  # history_retention: 604800  # Seconds to keep runs; default 7 days
+  # heartbeat: database     # Optional: worker liveness in worker_heartbeats (lazy table)
   # redis:                  # Only for driver: redis
   #   url: redis://127.0.0.1:6379/0     # or host / port / password / database
   #   prefix: neuron:queue
@@ -133,6 +136,24 @@ at startup, then `start()` the application, so jobs run with the same
 container, database connection, event listeners and view paths a web request
 has, and job classes are resolved through the container. Without it workers
 load event listeners only. CMS sites use `Neuron\Cms\Jobs\WorkerBootstrap`.
+
+**Run history (`queue.history`):**
+
+Set `queue.history: database` to persist every finished (and failed) run in
+a `job_runs` table. The table is created on first write. History works with
+any queue driver as long as a PDO connection is available (the database
+queue's own connection, an injected PDO, or the `database` / `queue.connection`
+settings). `queue.history_retention` (default 7 days) is applied
+opportunistically. Writes are logged and swallowed so a broken history table
+never stops a worker. Use `queue.history: array` in tests.
+
+**Worker heartbeats (`queue.heartbeat`):**
+
+Set `queue.heartbeat: database` to record live workers in
+`worker_heartbeats`. Each worker touches its row at the start of every loop
+and again after each job, including idle polls, so a dashboard can tell a
+live worker from one that died mid-reservation. Stale rows older than 24
+hours are pruned. Use `queue.heartbeat: array` in tests.
 
 ## Job Scheduling
 

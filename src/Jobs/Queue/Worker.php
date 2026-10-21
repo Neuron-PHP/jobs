@@ -79,6 +79,8 @@ class Worker
 
 		while( !$this->_shouldQuit )
 		{
+			$this->beat( $workerId, $queues );
+
 			$processed = false;
 
 			foreach( $queues as $queue )
@@ -87,6 +89,7 @@ class Worker
 				{
 					$processed = true;
 					$this->_jobsProcessed++;
+					$this->beat( $workerId, $queues );
 
 					// Check if we've hit max jobs
 					if( $this->_maxJobs > 0 && $this->_jobsProcessed >= $this->_maxJobs )
@@ -146,6 +149,25 @@ class Worker
 	private function processNextJob( string $queue ): bool
 	{
 		return $this->_queueManager->processNextJob( $queue, $this->_timeout );
+	}
+
+	/**
+	 * Refresh this worker's heartbeat row, if heartbeats are enabled.
+	 *
+	 * Called at the top of every loop, including idle polls, so a worker
+	 * that is alive but has no jobs still looks live on the dashboard.
+	 *
+	 * @param string $id
+	 * @param list<string> $queues
+	 */
+	private function beat( string $id, array $queues ): void
+	{
+		$this->_queueManager->getHeartbeat()?->touch(
+			$id,
+			$queues,
+			$this->_jobsProcessed,
+			$this->_startedAt
+		);
 	}
 
 	/**

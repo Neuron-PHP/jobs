@@ -5,7 +5,14 @@ namespace Neuron\Jobs\Queue;
 use Neuron\Core\Registry\RegistryKeys;
 use Neuron\Jobs\Exceptions\JobReportedFailureException;
 use Neuron\Jobs\Exceptions\JobTimeoutException;
+use Neuron\Data\Database\ConnectionFactory;
 use Neuron\Jobs\IJob;
+use Neuron\Jobs\Queue\Heartbeat\ArrayWorkerHeartbeat;
+use Neuron\Jobs\Queue\Heartbeat\DatabaseWorkerHeartbeat;
+use Neuron\Jobs\Queue\Heartbeat\IWorkerHeartbeat;
+use Neuron\Jobs\Queue\History\ArrayJobHistory;
+use Neuron\Jobs\Queue\History\DatabaseJobHistory;
+use Neuron\Jobs\Queue\History\IJobHistory;
 use Neuron\Data\Settings\Source\ISettingSource;
 use Neuron\Log\Log;
 use Neuron\Patterns\Container\IContainer;
@@ -30,6 +37,8 @@ class QueueManager
 	private array $_config;
 	private int $_maxAttempts = 3;
 	private int $_backoff = 0;
+	private ?IJobHistory $_history = null;
+	private ?IWorkerHeartbeat $_heartbeat = null;
 
 	/**
 	 * @param ISettingSource|null $settings Settings source for configuration
@@ -45,6 +54,8 @@ class QueueManager
 		$this->_maxAttempts = $this->_config['max_attempts'] ?? 3;
 		$this->_backoff = $this->_config['backoff'] ?? 0;
 		$this->_driver = $this->createDriver( $this->_config, $connection );
+		$this->_history = $this->createHistory( $this->_config, $connection );
+		$this->_heartbeat = $this->createHeartbeat( $this->_config, $connection );
 	}
 
 	/**
@@ -109,16 +120,25 @@ class QueueManager
 		$config['retry_after'] = (int)( $settings->get( 'queue', 'retry_after' ) ?? 90 );
 		$config['max_attempts'] = (int)( $settings->get( 'queue', 'max_attempts' ) ?? 3 );
 		$config['backoff'] = (int)( $settings->get( 'queue', 'backoff' ) ?? 0 );
+		$config['history'] = $settings->get( 'queue', 'history' );
+		$config['history_retention'] = (int)( $settings->get( 'queue', 'history_retention' ) ?? DatabaseJobHistory::DEFAULT_RETENTION );
+		$config['heartbeat'] = $settings->get( 'queue', 'heartbeat' );
 
-		// Load database settings if using database driver. The whole section is
-		// taken as-is (including `url`) and interpreted by
-		// Neuron\Data\Database\ConnectionFactory, so the queue accepts exactly
-		// the same database configuration as the rest of the application.
+		// Load database settings if using database driver, or if history /
+		// heartbeat need a PDO while the queue itself is file/redis/array.
+		// The whole section is taken as-is (including `url`) and interpreted
+		// by Neuron\Data\Database\ConnectionFactory, so the queue accepts
+		// exactly the same database configuration as the rest of the
+		// application.
 		//
 		// `queue.connection` names that section, `database` unless set, so the
 		// queue can live in a different database from the application's own -
 		// one the application only reads, for instance.
-		if( $config['driver'] === 'database' )
+		$needsDatabase = $config['driver'] === 'database'
+			|| $config['history'] === 'database'
+			|| $config['heartbeat'] === 'database';
+
+		if( $needsDatabase )
 		{
 			$section = $settings->get( 'queue', 'connection' );
 			$section = is_string( $section ) && $section !== '' ? $section : 'database';
@@ -174,7 +194,10 @@ class QueueManager
 			'default_queue' => 'default',
 			'retry_after' => 90,
 			'max_attempts' => 3,
-			'backoff' => 0
+			'backoff' => 0,
+			'history' => null,
+			'history_retention' => DatabaseJobHistory::DEFAULT_RETENTION,
+			'heartbeat' => null,
 		];
 	}
 
@@ -274,14 +297,14 @@ class QueueManager
 		}
 
 		$job = null;
+		$startedAt = time();
+		$startedHr = microtime( true );
 
 		try
 		{
 			$job = $queuedJob->getJob( $this->resolveContainer() );
 
 			Log::info( "Processing job: {$queuedJob->getId()} ({$queuedJob->getJobClass()})" );
-
-			$startTime = microtime( true );
 
 			if( $job instanceof IQueueable && $job->getTimeout() !== null )
 			{
@@ -306,9 +329,11 @@ class QueueManager
 				throw new JobReportedFailureException( $queuedJob->getJobClass() );
 			}
 
-			$executionTime = microtime( true ) - $startTime;
+			$executionTime = microtime( true ) - $startedHr;
 
 			$this->_driver->delete( $queuedJob );
+
+			$this->recordRun( $queuedJob, IJobHistory::STATUS_COMPLETED, $startedAt, $startedHr, null );
 
 			Log::info( "Job completed: {$queuedJob->getId()}" );
 
@@ -334,6 +359,8 @@ class QueueManager
 				$e,
 				$queuedJob->getAttempts()
 			) );
+
+			$this->recordRun( $queuedJob, IJobHistory::STATUS_FAILED, $startedAt, $startedHr, $e );
 
 			$this->handleFailedJob( $queuedJob, $e, $job );
 
@@ -801,6 +828,222 @@ class QueueManager
 	public function getDriver(): IQueue
 	{
 		return $this->_driver;
+	}
+
+	public function getHistory(): ?IJobHistory
+	{
+		return $this->_history;
+	}
+
+	public function setHistory( ?IJobHistory $history ): self
+	{
+		$this->_history = $history;
+		return $this;
+	}
+
+	public function getHeartbeat(): ?IWorkerHeartbeat
+	{
+		return $this->_heartbeat;
+	}
+
+	public function setHeartbeat( ?IWorkerHeartbeat $heartbeat ): self
+	{
+		$this->_heartbeat = $heartbeat;
+		return $this;
+	}
+
+	/**
+	 * Queue a job from a stored history payload (Dispatch again).
+	 *
+	 * New id, attempts reset. Unique jobs follow the usual de-duplication.
+	 *
+	 * @return string|null New job id, or null when the run is missing or unreadable
+	 */
+	public function dispatchFromHistory( string $runId ): ?string
+	{
+		$run = $this->_history?->findRun( $runId );
+
+		if( $run === null )
+		{
+			return null;
+		}
+
+		try
+		{
+			$queued = QueuedJob::fromPayload(
+				uniqid( 'job_', true ),
+				(string)( $run['queue'] ?? $this->getDefaultQueue() ),
+				(string)$run['payload']
+			);
+			$job = $queued->getJob( $this->resolveContainer() );
+		}
+		catch( \Throwable $e )
+		{
+			Log::error( "dispatchFromHistory: {$e->getMessage()}" );
+			return null;
+		}
+
+		return $this->dispatch( $job, $queued->getArguments(), $queued->getQueue() );
+	}
+
+	/**
+	 * @param array $config
+	 * @param \PDO|null $connection
+	 */
+	private function createHistory( array $config, ?\PDO $connection ): ?IJobHistory
+	{
+		$mode = $config['history'] ?? null;
+
+		if( !is_string( $mode ) || $mode === '' || $mode === 'none' )
+		{
+			return null;
+		}
+
+		$retention = (int)( $config['history_retention'] ?? DatabaseJobHistory::DEFAULT_RETENTION );
+
+		if( $mode === 'array' )
+		{
+			return new ArrayJobHistory( $retention );
+		}
+
+		if( $mode !== 'database' )
+		{
+			Log::warning( "QueueManager: unknown queue.history driver '{$mode}'" );
+			return null;
+		}
+
+		$pdo = $this->resolveHistoryConnection( $config, $connection );
+
+		if( $pdo === null )
+		{
+			Log::warning( 'QueueManager: queue.history is database but no PDO connection is available.' );
+			return null;
+		}
+
+		return new DatabaseJobHistory(
+			$pdo,
+			(string)( $config['history_table'] ?? DatabaseJobHistory::DEFAULT_TABLE ),
+			$retention
+		);
+	}
+
+	/**
+	 * @param array $config
+	 * @param \PDO|null $connection
+	 */
+	private function createHeartbeat( array $config, ?\PDO $connection ): ?IWorkerHeartbeat
+	{
+		$mode = $config['heartbeat'] ?? null;
+
+		if( !is_string( $mode ) || $mode === '' || $mode === 'none' )
+		{
+			return null;
+		}
+
+		if( $mode === 'array' )
+		{
+			return new ArrayWorkerHeartbeat();
+		}
+
+		if( $mode !== 'database' )
+		{
+			Log::warning( "QueueManager: unknown queue.heartbeat driver '{$mode}'" );
+			return null;
+		}
+
+		$pdo = $this->resolveHistoryConnection( $config, $connection );
+
+		if( $pdo === null )
+		{
+			Log::warning( 'QueueManager: queue.heartbeat is database but no PDO connection is available.' );
+			return null;
+		}
+
+		return new DatabaseWorkerHeartbeat(
+			$pdo,
+			(string)( $config['heartbeat_table'] ?? DatabaseWorkerHeartbeat::DEFAULT_TABLE )
+		);
+	}
+
+	/**
+	 * Prefer the injected connection, then the database queue's own PDO,
+	 * then open one from `queue.database` / `database` config.
+	 *
+	 * @param array $config
+	 * @param \PDO|null $connection
+	 */
+	private function resolveHistoryConnection( array $config, ?\PDO $connection ): ?\PDO
+	{
+		if( $connection instanceof \PDO )
+		{
+			return $connection;
+		}
+
+		if( $this->_driver instanceof DatabaseQueue )
+		{
+			return $this->_driver->getConnection();
+		}
+
+		$db = $config['database'] ?? [];
+
+		if( !is_array( $db ) || $db === [] )
+		{
+			return null;
+		}
+
+		try
+		{
+			$useEnvironment = (bool)( $db['use_environment'] ?? true );
+			unset( $db['jobs_table'], $db['failed_jobs_table'], $db['retry_after'], $db['use_environment'] );
+
+			if( $useEnvironment )
+			{
+				return ConnectionFactory::createFromConfig( $db );
+			}
+
+			$db = ConnectionFactory::normalize( $db, false );
+
+			$pdo = new \PDO(
+				ConnectionFactory::buildDsn( $db ),
+				$db['user'] ?? null,
+				$db['pass'] ?? null,
+				[
+					\PDO::ATTR_ERRMODE            => \PDO::ERRMODE_EXCEPTION,
+					\PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+				]
+			);
+
+			ConnectionFactory::initializeConnection( $pdo, $db['adapter'] );
+
+			return $pdo;
+		}
+		catch( \Throwable $e )
+		{
+			Log::warning( "QueueManager: could not open history connection: {$e->getMessage()}" );
+			return null;
+		}
+	}
+
+	private function recordRun( QueuedJob $job, string $status, int $startedAt, float $startedHr, ?\Throwable $e ): void
+	{
+		if( $this->_history === null )
+		{
+			return;
+		}
+
+		$this->_history->record([
+			'id' => uniqid( 'run_', true ),
+			'job_id' => $job->getId(),
+			'job_class' => $job->getJobClass(),
+			'queue' => $job->getQueue(),
+			'payload' => $job->getPayload(),
+			'status' => $status,
+			'exception' => $e?->getMessage(),
+			'started_at' => $startedAt,
+			'finished_at' => time(),
+			'duration_ms' => (int)round( ( microtime( true ) - $startedHr ) * 1000 ),
+			'attempts' => $job->getAttempts(),
+		]);
 	}
 
 	/**
