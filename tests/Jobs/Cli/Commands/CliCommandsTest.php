@@ -452,6 +452,10 @@ class CliCommandsTest extends TestCase
 
 	public function testStatsCommandExecuteDefaultQueue(): void
 	{
+		// An empty store falls back to the default queue.
+		$this->queueManager->method('getQueueNames')->willReturn([]);
+		$this->queueManager->method('getDefaultQueue')->willReturn('default');
+
 		$this->queueManager
 			->expects($this->once())
 			->method('size')

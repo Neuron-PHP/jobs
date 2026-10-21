@@ -504,6 +504,32 @@ class QueueManager
 	 * @param string|null $queue Queue name (null = default)
 	 * @return array{pending:int,delayed:?int,reserved:?int,oldest_pending_age:?int}
 	 */
+	/**
+	 * The queue jobs go to when none is named.
+	 *
+	 * @return string
+	 */
+	public function getDefaultQueue(): string
+	{
+		return $this->_config['default_queue'] ?? 'default';
+	}
+
+	/**
+	 * Queues that currently hold jobs, when the driver can tell; otherwise
+	 * just the default queue.
+	 *
+	 * @return string[]
+	 */
+	public function getQueueNames(): array
+	{
+		if( $this->_driver instanceof IQueueStats )
+		{
+			return $this->_driver->getQueueNames();
+		}
+
+		return [ $this->getDefaultQueue() ];
+	}
+
 	public function getStats( ?string $queue = null ): array
 	{
 		$queue = $queue ?? $this->_config['default_queue'] ?? 'default';

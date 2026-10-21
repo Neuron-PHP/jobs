@@ -11,6 +11,11 @@
   the scheduler logs an error for a directly-run job. Any other return value,
   including `null`, is success. Jobs returning `false` to mean "nothing to
   do" should return `null` instead.
+* `jobs:stats` reports every queue that holds jobs when `--queue` is not
+  given, instead of only `default`. A queue nobody is draining was invisible
+  unless named explicitly. `IQueueStats::getQueueNames()` provides the list
+  (database, file, array and redis drivers); `QueueManager::getQueueNames()`
+  and `getDefaultQueue()` expose it.
 * A scheduled job that throws no longer takes the scheduler down. Jobs run
   directly in the scheduler process (no `queue:` in `schedule.yaml`) were
   unguarded, so one exception ended the scheduler and every job due after it

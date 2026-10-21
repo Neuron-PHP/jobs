@@ -319,6 +319,28 @@ class FileQueue implements IQueue, IQueueStats
 	/**
 	 * @inheritDoc
 	 */
+	public function getQueueNames(): array
+	{
+		$names = [];
+
+		foreach( glob( $this->_path . '/*', GLOB_ONLYDIR ) ?: [] as $dir )
+		{
+			if( $dir === $this->_failedPath )
+			{
+				continue;
+			}
+
+			if( glob( $dir . '/job_*.json' ) )
+			{
+				$names[] = basename( $dir );
+			}
+		}
+
+		sort( $names );
+
+		return $names;
+	}
+
 	public function getStats( string $queue = 'default' ): array
 	{
 		$stats = [ 'pending' => 0, 'delayed' => 0, 'reserved' => 0, 'oldest_pending_age' => null ];

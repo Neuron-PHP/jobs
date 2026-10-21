@@ -26,4 +26,13 @@ interface IQueueStats
 	 * @return array{pending:int,delayed:int,reserved:int,oldest_pending_age:?int}
 	 */
 	public function getStats( string $queue = 'default' ): array;
+
+	/**
+	 * Names of the queues that currently hold jobs (pending, delayed or
+	 * reserved), so tooling can report on what is actually there rather than
+	 * on a configured list. Sorted; empty when the store is empty.
+	 *
+	 * @return string[]
+	 */
+	public function getQueueNames(): array;
 }
