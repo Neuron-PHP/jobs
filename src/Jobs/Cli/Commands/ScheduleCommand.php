@@ -5,6 +5,8 @@ namespace Neuron\Jobs\Cli\Commands;
 use Neuron\Cli\Commands\Command;
 use Neuron\Core\Registry\RegistryKeys;
 use Neuron\Data\Settings\Source\ISettingSource;
+use Neuron\Application\Base;
+use Neuron\Jobs\Bootstrap\MinimalApplication;
 use Neuron\Jobs\Bootstrap\WorkerBootstrapper;
 use Neuron\Jobs\Queue\DatabaseQueue;
 use Neuron\Jobs\Queue\QueueManager;
@@ -82,6 +84,7 @@ class ScheduleCommand extends Command
 		// scheduler process, and the dispatch() calls for queued ones, see the
 		// same container, database and listeners a request would.
 		$bootstrapper = null;
+		$app          = null;
 
 		if( !$this->input->hasOption( 'no-bootstrap' ) )
 		{
@@ -100,7 +103,7 @@ class ScheduleCommand extends Command
 
 		try
 		{
-			return $this->runScheduler( $configPath );
+			return $this->runScheduler( $configPath, $app );
 		}
 		finally
 		{
@@ -112,9 +115,10 @@ class ScheduleCommand extends Command
 	 * Initialise and run the scheduler.
 	 *
 	 * @param string $configPath
+	 * @param Base|null $context The application context booted for this process, if any
 	 * @return int Exit code
 	 */
-	private function runScheduler( string $configPath ): int
+	private function runScheduler( string $configPath, ?Base $context = null ): int
 	{
 		// Initialize the scheduler
 		try
@@ -125,6 +129,17 @@ class ScheduleCommand extends Command
 			{
 				$this->output->error( 'Failed to initialize scheduler' );
 				return 1;
+			}
+
+			// The scheduler is an application too, and starting it loads the
+			// event listeners and runs the initializers. A context booted
+			// above has done that already; doing it again registered every
+			// listener twice, so each event was handled twice. A
+			// MinimalApplication loads the listeners but runs no initializers,
+			// so the scheduler still runs those.
+			if( $context !== null )
+			{
+				$this->scheduler->setStartedByContext( true, !$context instanceof MinimalApplication );
 			}
 		}
 		catch( \Exception $e )
