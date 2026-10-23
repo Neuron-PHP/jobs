@@ -304,7 +304,7 @@ class QueueManager
 		{
 			$job = $queuedJob->getJob( $this->resolveContainer() );
 
-			Log::info( "Processing job: {$queuedJob->getId()} ({$queuedJob->getJobClass()})" );
+			Log::debug( "Processing job: {$queuedJob->getId()} ({$queuedJob->getJobClass()})" );
 
 			if( $job instanceof IQueueable && $job->getTimeout() !== null )
 			{
@@ -335,7 +335,7 @@ class QueueManager
 
 			$this->recordRun( $queuedJob, IJobHistory::STATUS_COMPLETED, $startedAt, $startedHr, null );
 
-			Log::info( "Job completed: {$queuedJob->getId()}" );
+			Log::debug( "Job completed: {$queuedJob->getId()}" );
 
 			// Emit job processed event
 			\Neuron\Application\CrossCutting\Event::emit( new \Neuron\Jobs\Events\JobProcessedEvent(
