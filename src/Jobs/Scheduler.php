@@ -65,6 +65,8 @@ class Scheduler extends CommandLineBase
 	private ?IScheduleLock $_lock = null;
 	private bool $_shouldStop = false;
 	private bool $_signalsRegistered = false;
+	private bool $_eventsLoaded = false;
+	private bool $_initializersRun = false;
 
 	/**
 	 * Ask the poll loop to exit once the current poll has finished.
@@ -133,6 +135,63 @@ class Scheduler extends CommandLineBase
 	public function getLock(): ?IScheduleLock
 	{
 		return $this->_lock;
+	}
+
+	/**
+	 * Say what an application context already started in this process has
+	 * done, so this scheduler does not do it a second time. jobs:schedule boots
+	 * one through WorkerBootstrapper before the scheduler starts.
+	 *
+	 * Loading the event listeners twice registers a second broadcaster carrying
+	 * every listener again, and each event is then handled twice. Running the
+	 * initializers twice repeats whatever they set up.
+	 *
+	 * @param bool $events The event listeners are loaded
+	 * @param bool $initializers The initializers have run
+	 * @return Scheduler
+	 */
+
+	public function setStartedByContext( bool $events, bool $initializers ): Scheduler
+	{
+		$this->_eventsLoaded     = $events;
+		$this->_initializersRun  = $initializers;
+		return $this;
+	}
+
+	/**
+	 * Load the event listeners, unless an application context already has.
+	 *
+	 * @return void
+	 */
+
+	public function initEvents(): void
+	{
+		if( $this->_eventsLoaded )
+		{
+			Log::debug( "Event listeners already loaded by the application context; not loading them again." );
+			return;
+		}
+
+		parent::initEvents();
+		$this->_eventsLoaded = true;
+	}
+
+	/**
+	 * Run the initializers, unless an application context already has.
+	 *
+	 * @return void
+	 */
+
+	protected function executeInitializers(): void
+	{
+		if( $this->_initializersRun )
+		{
+			Log::debug( "Initializers already run by the application context; not running them again." );
+			return;
+		}
+
+		parent::executeInitializers();
+		$this->_initializersRun = true;
 	}
 
 
