@@ -30,6 +30,7 @@ composer.phar
 cache.properties
 composer.lock
 tests/.phpunit.result.cache
+tests/.phpunit.cache
 examples/test.log
 
 coverage.xml

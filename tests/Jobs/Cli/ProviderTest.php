@@ -18,20 +18,26 @@ class ProviderTest extends TestCase
 		$registry = $this->createMock(Registry::class);
 
 		// Expect register() to be called for each command
+		$expected = [
+			['jobs:schedule', 'Neuron\\Jobs\\Cli\\Commands\\ScheduleCommand'],
+			['jobs:work', 'Neuron\\Jobs\\Cli\\Commands\\WorkCommand'],
+			['jobs:failed', 'Neuron\\Jobs\\Cli\\Commands\\FailedCommand'],
+			['jobs:retry', 'Neuron\\Jobs\\Cli\\Commands\\RetryCommand'],
+			['jobs:flush', 'Neuron\\Jobs\\Cli\\Commands\\FlushCommand'],
+			['jobs:forget', 'Neuron\\Jobs\\Cli\\Commands\\ForgetCommand'],
+			['jobs:stats', 'Neuron\\Jobs\\Cli\\Commands\\StatsCommand'],
+			['jobs:list', 'Neuron\\Jobs\\Cli\\Commands\\ListCommand'],
+			['jobs:restart', 'Neuron\\Jobs\\Cli\\Commands\\RestartCommand'],
+			['jobs:run', 'Neuron\\Jobs\\Cli\\Commands\\RunCommand']
+		];
+		$call = 0;
+
 		$registry->expects($this->exactly(10))
 			->method('register')
-			->withConsecutive(
-				['jobs:schedule', 'Neuron\\Jobs\\Cli\\Commands\\ScheduleCommand'],
-				['jobs:work', 'Neuron\\Jobs\\Cli\\Commands\\WorkCommand'],
-				['jobs:failed', 'Neuron\\Jobs\\Cli\\Commands\\FailedCommand'],
-				['jobs:retry', 'Neuron\\Jobs\\Cli\\Commands\\RetryCommand'],
-				['jobs:flush', 'Neuron\\Jobs\\Cli\\Commands\\FlushCommand'],
-				['jobs:forget', 'Neuron\\Jobs\\Cli\\Commands\\ForgetCommand'],
-				['jobs:stats', 'Neuron\\Jobs\\Cli\\Commands\\StatsCommand'],
-				['jobs:list', 'Neuron\\Jobs\\Cli\\Commands\\ListCommand'],
-				['jobs:restart', 'Neuron\\Jobs\\Cli\\Commands\\RestartCommand'],
-				['jobs:run', 'Neuron\\Jobs\\Cli\\Commands\\RunCommand']
-			);
+			->willReturnCallback(function (string $name, string $class) use (&$call, $expected) {
+				$this->assertSame($expected[$call], [$name, $class]);
+				$call++;
+			});
 
 		Provider::register($registry);
 	}

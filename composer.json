@@ -16,7 +16,7 @@
     "neuron-php/cli": "0.8.*"
   },
   "require-dev": {
-    "phpunit/phpunit": "9.* || 13.*"
+    "phpunit/phpunit": "^13.4"
   },
   "autoload": {
     "files": [
