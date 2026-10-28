@@ -6,6 +6,7 @@ use Neuron\Jobs\Queue\ArrayQueue;
 use Neuron\Jobs\Queue\QueueManager;
 use Neuron\Jobs\Queue\QueuedJob;
 use Neuron\Patterns\Registry;
+use PHPUnit\Framework\Attributes\After;
 
 /**
  * PHPUnit helpers for code that dispatches jobs.
@@ -32,7 +33,7 @@ use Neuron\Patterns\Registry;
  *         $this->assertDispatchedOn( 'emails', SendEmailJob::class );
  *     }
  *
- * The previous Registry entry is put back after each test by an @after hook
+ * The previous Registry entry is put back after each test by an After hook
  * (restoreQueue()), so other tests are not affected.
  *
  * The assertions delegate to the TestCase's own assert methods, so this trait
@@ -92,9 +93,9 @@ trait QueueAssertions
 	/**
 	 * PHPUnit calls this after every test; it undoes fakeQueue().
 	 *
-	 * @after
 	 * @return void
 	 */
+	#[After]
 	protected function tearDownQueueAssertions(): void
 	{
 		$this->restoreQueue();
